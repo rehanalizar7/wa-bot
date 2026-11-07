@@ -632,7 +632,7 @@ async function prosesToko(wa, chatId, teks) {
     }
 
     // Info hadiah — tampilkan yang stok > 0 + foto
-    if (inp === "2" || inp.includes("hadiah") || inp.includes("info")) {
+    if (inp === "2" || inp.includes("hadiah") || (inp.includes("info") && !inp.includes("program"))) {
       const hadiahTersedia = hadiahDB.filter(h => h.stok === null || h.stok > 0);
       if (hadiahTersedia.length === 0) {
         return `😔 Saat ini belum ada hadiah yang tersedia.\n\nKetik *0* untuk menu.`;
