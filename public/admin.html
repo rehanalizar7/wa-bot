@@ -72,6 +72,7 @@
     <button data-tab="info" class="nav-btn px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-blue-50 whitespace-nowrap">📢 Info Program</button>
     <button data-tab="log" class="nav-btn px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-blue-50 whitespace-nowrap">📋 Log</button>
     <button data-tab="tim" class="nav-btn px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-blue-50 whitespace-nowrap">👥 Tim</button>
+    <button data-tab="menu" class="nav-btn px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-blue-50 whitespace-nowrap">🧩 Menu Bot</button>
     <button data-tab="pesan" class="nav-btn px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-blue-50 whitespace-nowrap">💬 Pesan Bot</button>
     <button data-tab="wa" class="nav-btn px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-blue-50 whitespace-nowrap">📱 Koneksi WA</button>
     <button data-tab="setting" class="nav-btn px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-blue-50 whitespace-nowrap">⚙️ Pengaturan</button>
@@ -192,6 +193,26 @@
     <h2 class="text-xl font-bold text-gray-700 mb-1">Tim</h2>
     <p class="text-sm text-gray-500 mb-4">Nomor yang didaftarkan di sini dapat menu khusus saat chat ke bot. Satu nomor hanya boleh punya 1 peran.</p>
     <div id="timWrap" class="space-y-6"><div class="card p-6 text-center text-gray-400">Memuat...</div></div>
+  </section>
+
+  <!-- ===================== MENU BOT ===================== -->
+  <section id="tab-menu" class="tab-content">
+    <div class="flex items-center justify-between mb-1">
+      <h2 class="text-xl font-bold text-gray-700">Menu Bot</h2>
+      <button onclick="openMenu(null)" class="btn btn-pri">+ Tambah Menu</button>
+    </div>
+    <p class="text-sm text-gray-500 mb-4">Tambah pilihan menu untuk toko, misalnya <i>Kontak Sales</i>, <i>Cara Order</i>, atau <i>Syarat Program</i>.
+      Menu 1–4 adalah menu bawaan. Menu tambahan mulai dari nomor 5 dan langsung muncul di daftar menu bot.</p>
+    <div class="grid lg:grid-cols-3 gap-6">
+      <div class="lg:col-span-2 space-y-3" id="menuList"><div class="card p-6 text-center text-gray-400">Memuat...</div></div>
+      <div>
+        <div class="card p-4 lg:sticky lg:top-32">
+          <div class="text-sm font-semibold text-gray-700 mb-2">Tampilan menu di WhatsApp</div>
+          <div id="menuPreviewUtama" class="wa-bubble"></div>
+          <p class="hint mt-2">Teks sapaan bisa diubah di menu <button onclick="showTab('pesan')" class="text-blue-600 underline">Pesan Bot</button>.</p>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- ===================== PESAN BOT ===================== -->
@@ -391,6 +412,40 @@
   </div>
 </div>
 
+<!-- ===================== MODAL: MENU ===================== -->
+<div id="modalMenu" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 hidden px-4">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-screen overflow-y-auto">
+    <h3 id="modalMenuJudul" class="text-lg font-bold text-gray-800 mb-4">Menu</h3>
+    <input type="hidden" id="menuId">
+    <div class="grid md:grid-cols-2 gap-5">
+      <div class="space-y-3">
+        <div class="grid grid-cols-3 gap-3">
+          <div><label class="lbl">Nomor <span class="text-red-500">*</span></label><input id="menuNomor" type="number" min="5" max="99" class="inp" oninput="previewMenuForm()"></div>
+          <div class="col-span-2"><label class="lbl">Nama menu <span class="text-red-500">*</span></label><input id="menuJudulInp" maxlength="40" class="inp" placeholder="Kontak Sales" oninput="previewMenuForm()"></div>
+        </div>
+        <div><label class="lbl">Kata kunci <span class="text-gray-400 font-normal">(opsional)</span></label>
+          <input id="menuKunci" class="inp" placeholder="sales, kontak, nomor sales">
+          <div class="hint">Pisahkan dengan koma. Toko bisa ketik nomor <b>atau</b> salah satu kata ini.</div></div>
+        <div><label class="lbl">Isi balasan <span class="text-red-500">*</span></label>
+          <textarea id="menuIsi" rows="7" class="inp" oninput="previewMenuForm()"></textarea>
+          <div class="mt-1"><span class="chip" onclick="sisipMenu('{toko}')">{toko}</span><span class="chip" onclick="sisipMenu('{pic}')">{pic}</span><span class="chip" onclick="sisipMenu('{poin}')">{poin}</span><span class="chip" onclick="sisipMenu('{kode}')">{kode}</span></div></div>
+        <div><label class="lbl">Link gambar <span class="text-gray-400 font-normal">(opsional)</span></label>
+          <input id="menuGambar" class="inp" placeholder="https://..." oninput="previewMenuForm()"></div>
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="menuAktifInp" checked> Aktif (tampil di menu bot)</label>
+      </div>
+      <div>
+        <div class="lbl mb-1">Balasan bot saat toko pilih menu ini:</div>
+        <img id="menuGambarPrev" class="hidden rounded-t-lg w-full max-h-48 object-cover" onerror="this.classList.add('hidden')">
+        <div id="menuIsiPrev" class="wa-bubble"></div>
+      </div>
+    </div>
+    <div class="flex gap-3 mt-5">
+      <button onclick="closeModal('modalMenu')" class="flex-1 btn btn-sec">Batal</button>
+      <button onclick="submitMenu()" class="flex-1 btn btn-pri">Simpan</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===================== MODAL: TIM ===================== -->
 <div id="modalTim" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 hidden px-4">
   <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
@@ -487,6 +542,7 @@ const loaders = {
   info: () => loadInfo(),
   log: () => loadLog(),
   tim: () => loadTim(),
+  menu: () => loadMenu(),
   pesan: () => loadPesan(),
   wa: () => loadWa(),
   setting: () => loadSetting(),
@@ -843,7 +899,104 @@ function hapusTim(role, i) {
 
 // ============================================================ PESAN BOT
 const CONTOH = { toko: "Toko Maju Jaya", pic: "Bu Siti", poin: "12.500", kode: "SUB12345", hadiah: "Magic Com", poin_hadiah: "10.000", sisa_poin: "2.500" };
-function isiContoh(t) { return t.replace(/\{(\w+)\}/g, (m, k) => CONTOH[k] ?? m); }
+function isiContoh(t) {
+  const v = { ...CONTOH, menu_tambahan: teksMenuExtra(settings?.menuTambahan || []) };
+  return t.replace(/\{(\w+)\}/g, (m, k) => v[k] ?? m);
+}
+function emojiNomor(n) { return String(n).split("").map(d => /\d/.test(d) ? d + "\uFE0F\u20E3" : d).join(""); }
+function teksMenuExtra(list) {
+  return list.filter(m => m.aktif !== false).sort((a, b) => a.nomor - b.nomor).map(m => `\n${emojiNomor(m.nomor)}  ${m.judul}`).join("");
+}
+
+// ============================================================ MENU BOT
+let menuData = [];
+async function loadMenu() {
+  try { settings = await api("GET", "/api/settings"); }
+  catch (e) { $("menuList").innerHTML = `<div class="card p-6 text-red-500">${esc(e.message)}</div>`; return; }
+  menuData = [...(settings.menuTambahan || [])].sort((a, b) => a.nomor - b.nomor);
+  renderPreviewUtama();
+  if (!menuData.length) {
+    $("menuList").innerHTML = `<div class="card p-8 text-center text-gray-500">
+      <div class="text-4xl mb-2">🧩</div>Belum ada menu tambahan.<br>
+      <button onclick="openMenu(null)" class="btn btn-pri mt-3">+ Buat menu pertama</button></div>`;
+    return;
+  }
+  $("menuList").innerHTML = menuData.map((m, i) => `
+    <div class="card p-4 ${m.aktif === false ? "opacity-60" : ""}">
+      <div class="flex items-start gap-3">
+        <div class="text-2xl leading-none">${emojiNomor(m.nomor)}</div>
+        <div class="flex-1 min-w-0">
+          <div class="font-semibold text-gray-800">${esc(m.judul)} ${m.aktif === false ? '<span class="text-xs text-gray-500 font-normal">(nonaktif)</span>' : ""}</div>
+          <div class="mt-1">${(m.kataKunci || []).map(k => `<span class="chip !cursor-default">${esc(k)}</span>`).join("") || '<span class="hint">Tanpa kata kunci, hanya lewat nomor</span>'}</div>
+          <div class="text-sm text-gray-500 mt-1 truncate">${m.gambar ? "🖼️ " : ""}${esc(m.isi.replace(/\n+/g, " "))}</div>
+        </div>
+        <label class="switch" title="Aktif / nonaktif"><input type="checkbox" ${m.aktif !== false ? "checked" : ""} onchange="toggleMenu(${i}, this)"><span class="slider"></span></label>
+      </div>
+      <div class="flex gap-2 mt-3">
+        <button onclick="openMenu(${i})" class="text-xs border border-blue-400 text-blue-600 px-3 py-1.5 rounded-lg hover:bg-blue-50">Edit</button>
+        <button onclick="hapusMenu(${i})" class="text-xs border border-red-400 text-red-500 px-3 py-1.5 rounded-lg hover:bg-red-50">Hapus</button>
+      </div>
+    </div>`).join("");
+}
+function renderPreviewUtama() {
+  const tpl = settings.pesan.menuUtama || "";
+  let teks = isiContoh(tpl);
+  if (!tpl.includes("{menu_tambahan}")) teks += teksMenuExtra(settings.menuTambahan || []);
+  $("menuPreviewUtama").innerHTML = waFormat(teks);
+}
+function nomorBerikut() {
+  const dipakai = new Set(menuData.map(m => m.nomor));
+  for (let n = 5; n < 100; n++) if (!dipakai.has(String(n))) return n;
+  return "";
+}
+function openMenu(i) {
+  const m = i === null ? null : menuData[i];
+  $("modalMenuJudul").textContent = m ? "Edit Menu" : "Tambah Menu";
+  $("menuId").value = m ? m.id : "";
+  $("menuNomor").value = m ? m.nomor : nomorBerikut();
+  $("menuJudulInp").value = m ? m.judul : "";
+  $("menuKunci").value = m ? (m.kataKunci || []).join(", ") : "";
+  $("menuIsi").value = m ? m.isi : "";
+  $("menuGambar").value = m ? m.gambar : "";
+  $("menuAktifInp").checked = m ? m.aktif !== false : true;
+  previewMenuForm();
+  openModal("modalMenu");
+}
+function previewMenuForm() {
+  const isi = $("menuIsi").value;
+  $("menuIsiPrev").innerHTML = isi ? waFormat(isiContoh(isi)) : '<span class="text-gray-400">Isi balasan akan tampil di sini</span>';
+  const g = $("menuGambar").value.trim(), img = $("menuGambarPrev");
+  if (/^https?:\/\//.test(g)) { img.src = g; img.classList.remove("hidden"); } else img.classList.add("hidden");
+}
+function sisipMenu(teks) {
+  const ta = $("menuIsi"), s = ta.selectionStart ?? ta.value.length, e = ta.selectionEnd ?? s;
+  ta.value = ta.value.slice(0, s) + teks + ta.value.slice(e);
+  ta.focus(); ta.selectionStart = ta.selectionEnd = s + teks.length;
+  previewMenuForm();
+}
+function dataFormMenu() {
+  return { nomor: $("menuNomor").value.trim(), judul: $("menuJudulInp").value.trim(), kataKunci: $("menuKunci").value,
+    isi: $("menuIsi").value, gambar: $("menuGambar").value.trim(), aktif: $("menuAktifInp").checked };
+}
+async function simpanMenu(id, body) {
+  const r = await aksi(() => id ? api("PUT", "/api/menu/" + id, body) : api("POST", "/api/menu", body));
+  if (!r) return false;
+  showToast(r.peringatan?.length ? "Tersimpan. Catatan: " + r.peringatan[0] : "Menu tersimpan, langsung aktif di bot!", !r.peringatan?.length);
+  return true;
+}
+async function submitMenu() {
+  if (await simpanMenu($("menuId").value, dataFormMenu())) { closeModal("modalMenu"); loadMenu(); }
+}
+async function toggleMenu(i, el) {
+  const m = menuData[i];
+  if (await simpanMenu(m.id, { ...m, aktif: el.checked })) loadMenu(); else el.checked = !el.checked;
+}
+function hapusMenu(i) {
+  const m = menuData[i];
+  konfirmasi({ judul: "Hapus menu?", pesan: `Menu ${m.nomor} "${m.judul}" akan dihapus dari bot.`, tombol: "Hapus", ikon: "🗑️" }, async () => {
+    if (await aksi(() => api("DELETE", "/api/menu/" + m.id), "Menu dihapus")) loadMenu();
+  });
+}
 async function loadPesan() {
   try { settings = await api("GET", "/api/settings"); }
   catch (e) { $("pesanWrap").innerHTML = `<div class="card p-6 text-red-500">${esc(e.message)}</div>`; return; }

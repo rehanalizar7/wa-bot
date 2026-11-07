@@ -43,7 +43,7 @@ dan ikuti **Langkah persiapan** di halaman Beranda:
 2. **Koneksi WA**: scan QR dari HP nomor bot, lalu pilih grup notifikasi.
 3. **Pengaturan → Super Admin**: isi nomor admin utama.
 4. **Tim**: daftarkan RE, Supervisor, Manajer, dan admin.
-5. **Hadiah**, **Info Program**, **Pesan Bot**: sesuaikan.
+5. **Hadiah**, **Info Program**, **Menu Bot**, **Pesan Bot**: sesuaikan.
 
 ## Lupa password panel
 

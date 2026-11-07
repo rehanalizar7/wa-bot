@@ -273,6 +273,7 @@ function settingsPublik() {
     pesan: c.pesan,
     pesanDefault: store.DEFAULT_PESAN,
     pesanMeta: store.PESAN_META,
+    menuTambahan: c.menuTambahan,
     serviceAccountEmail: serviceAccountEmail(),
   };
 }
@@ -324,6 +325,74 @@ app.put("/api/settings", requireAuth, (req, res) => {
     });
     res.json(settingsPublik());
   } catch (e) { kirimError(res, e); }
+});
+
+// ============================================================
+// MENU TAMBAHAN (menu toko yang dibuat sendiri dari panel)
+// ============================================================
+
+function salahInput(msg) { return Object.assign(new Error(msg), { status: 400 }); }
+
+function bentukMenu(body, idSendiri) {
+  const lain = (cfg().menuTambahan || []).filter(m => m.id !== idSendiri);
+  const nomor = String(body.nomor ?? "").trim().replace(/^0+(?=\d)/, "");
+  if (!/^\d{1,2}$/.test(nomor)) throw salahInput("Nomor menu harus angka (contoh: 5)");
+  if (store.NOMOR_BAWAAN.includes(nomor)) throw salahInput(`Nomor ${nomor} sudah dipakai menu bawaan (0–4). Pakai nomor 5 ke atas.`);
+  if (lain.some(m => m.nomor === nomor)) throw salahInput(`Nomor ${nomor} sudah dipakai menu lain`);
+
+  const judul = String(body.judul || "").trim();
+  if (!judul) throw salahInput("Nama menu wajib diisi");
+  if (judul.length > 40) throw salahInput("Nama menu maksimal 40 huruf");
+
+  const isi = String(body.isi || "").trim();
+  if (!isi) throw salahInput("Isi balasan wajib diisi");
+
+  const gambar = String(body.gambar || "").trim();
+  if (gambar && !/^https?:\/\//i.test(gambar)) throw salahInput("Link gambar harus diawali http:// atau https://");
+
+  const mentah = Array.isArray(body.kataKunci) ? body.kataKunci : String(body.kataKunci || "").split(/[\n,]+/);
+  const kataKunci = [...new Set(mentah.map(k => k.trim().toLowerCase()).filter(Boolean))];
+  for (const k of kataKunci) {
+    if (/^\d+$/.test(k)) throw salahInput(`Kata kunci "${k}" tidak boleh angka saja — pakai kolom nomor menu`);
+    if (store.KATA_BAWAAN.includes(k)) throw salahInput(`Kata kunci "${k}" sudah dipakai menu bawaan`);
+    const bentrok = lain.find(m => (m.kataKunci || []).includes(k));
+    if (bentrok) throw salahInput(`Kata kunci "${k}" sudah dipakai menu "${bentrok.judul}"`);
+  }
+  const peringatan = kataKunci
+    .filter(k => ["cek", "poin", "hadiah", "info", "klaim", "program"].some(b => k.includes(b)))
+    .map(k => `Kata kunci "${k}" mengandung kata menu bawaan. Kalau toko mengetiknya dalam kalimat, bisa masuk ke menu bawaan; kalau diketik persis tetap ke menu ini.`);
+
+  return {
+    menu: { id: idSendiri || crypto.randomBytes(4).toString("hex"), nomor, judul, kataKunci, isi, gambar, aktif: body.aktif !== false },
+    peringatan,
+  };
+}
+
+app.get("/api/menu", requireAuth, (req, res) => res.json(cfg().menuTambahan || []));
+
+app.post("/api/menu", requireAuth, (req, res) => {
+  try {
+    const { menu, peringatan } = bentukMenu(req.body);
+    store.updateConfig(c => { c.menuTambahan = [...(c.menuTambahan || []), menu]; });
+    res.json({ ok: true, menu, peringatan });
+  } catch (e) { kirimError(res, e); }
+});
+
+app.put("/api/menu/:id", requireAuth, (req, res) => {
+  try {
+    const list = cfg().menuTambahan || [];
+    if (!list.some(m => m.id === req.params.id)) return res.status(404).json({ error: "Menu tidak ditemukan" });
+    const { menu, peringatan } = bentukMenu(req.body, req.params.id);
+    store.updateConfig(c => { c.menuTambahan = c.menuTambahan.map(m => (m.id === menu.id ? menu : m)); });
+    res.json({ ok: true, menu, peringatan });
+  } catch (e) { kirimError(res, e); }
+});
+
+app.delete("/api/menu/:id", requireAuth, (req, res) => {
+  const list = cfg().menuTambahan || [];
+  if (!list.some(m => m.id === req.params.id)) return res.status(404).json({ error: "Menu tidak ditemukan" });
+  store.updateConfig(c => { c.menuTambahan = c.menuTambahan.filter(m => m.id !== req.params.id); });
+  res.json({ ok: true });
 });
 
 // ============================================================

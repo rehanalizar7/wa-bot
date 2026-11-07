@@ -571,6 +571,16 @@ function buildPromptManajer(mgr, tokoDB, ranking) {
   );
 }
 
+// Kirim isi menu tambahan (dengan gambar kalau ada). Return null = sudah terkirim sendiri.
+async function kirimMenuTambahan(chatId, menu, vars) {
+  const teks = store.isiTemplate(menu.isi, vars);
+  if (menu.gambar) {
+    const terkirim = await kirimFoto(chatId, { gambar: menu.gambar, nama: menu.judul }, teks);
+    if (terkirim) return null;
+  }
+  return teks;
+}
+
 async function prosesToko(wa, chatId, teks) {
   const inp = teks.trim().toLowerCase();
   const st = getState(wa);
@@ -590,16 +600,30 @@ async function prosesToko(wa, chatId, teks) {
   }
 
   const fitur = cfg().fitur;
-  const v = { toko: toko.nama, pic: toko.penjaga || "-", kode: toko.code, poin: fmt(toko.poin) };
+  const menuExtra = store.menuAktif();
+  const v = {
+    toko: toko.nama, pic: toko.penjaga || "-", kode: toko.code,
+    poin: fmt(toko.poin),
+    menu_tambahan: store.teksMenuTambahan(menuExtra),
+  };
+  // Saat fitur cek poin dimatikan, poin di menu & menu tambahan disembunyikan
+  const vTampil = { ...v, poin: fitur.cekPoin ? v.poin : "sedang dihitung ⏳" };
 
   // ── MENU UTAMA ────────────────────────────────────────────
   if (st.step === "start" || ["menu","0","halo","hi","hello","hai"].includes(inp)) {
     setState(wa, { step: "menu" });
-    return render("menuUtama", { ...v, poin: fitur.cekPoin ? v.poin : "sedang dihitung ⏳" });
+    let teksMenu = render("menuUtama", vTampil);
+    // Kalau template menu diubah dan {menu_tambahan} terhapus, tetap tampilkan di bawah
+    if (!(cfg().pesan.menuUtama || "").includes("{menu_tambahan}")) teksMenu += v.menu_tambahan;
+    return teksMenu;
   }
 
   // ── MENU ─────────────────────────────────────────────────
   if (st.step === "menu") {
+
+    // Menu tambahan — nomor / kata kunci persis didahulukan
+    const menuPersis = store.cariMenu(inp, true, menuExtra);
+    if (menuPersis) return kirimMenuTambahan(chatId, menuPersis, vTampil);
 
     // Cek poin
     if (inp === "1" || inp.includes("cek") || inp.includes("poin")) {
@@ -671,6 +695,10 @@ async function prosesToko(wa, chatId, teks) {
       const listHadiah = bisaDiklaim.map((h, i) => `${i+1}. *${h.nama}* — ${fmt(h.poin)} poin _(${h.tipe})_`).join("\n");
       return `${infoKlaim}Pilih hadiah yang mau diklaim:\n\n${listHadiah}\n\nKetik nomernya (1–${bisaDiklaim.length}) ya, Mas/Mbak.\nKetik *0* untuk batal.`;
     }
+
+    // Menu tambahan — kata kunci yang terkandung di kalimat
+    const menuMirip = store.cariMenu(inp, false, menuExtra);
+    if (menuMirip) return kirimMenuTambahan(chatId, menuMirip, vTampil);
 
     if (isAITester(wa)) {
       let infoList = [];
@@ -1892,6 +1920,7 @@ client.on("message", async (msg) => {
               ? prosesRE(wa, msg.body)
               : prosesToko(wa, chatId, msg.body)
     );
+    if (!balasan) return; // sudah dikirim langsung (mis. foto + caption)
     await msg.reply(balasan);
     console.log(`📤 Reply: ${balasan.slice(0, 60).replace(/\n/g," ")}...`);
   } catch (err) {
