@@ -20,6 +20,7 @@ const fs = require("fs");
 const http = require("http");
 const crypto = require("crypto");
 const store = require("./lib/store");
+const pencapaian = require("./lib/pencapaian");
 
 const cfg = () => store.getConfig();
 const { normWa, toList } = store;
@@ -134,20 +135,26 @@ const SHEET_STRUKTUR = {
   "List_Hadiah":  ["ID", "NAMA", "POIN", "GAMBAR", "STOK", "TIPE"],
   "LOG_KLAIM":    ["TANGGAL", "NAMA_TOKO", "PIC_TOKO", "KODE_TOKO", "AKSI", "KETERANGAN", "POIN_DIUBAH", "SISA_POIN"],
   "Info_Program": ["JUDUL", "DESKRIPSI", "GAMBAR", "MEKANISME", "PERIODE", "KODE_PROGRAM", "TARGET", "SATUAN"],
-  "Pencapaian_Program": ["KODE_PROGRAM", "KODE_TOKO", "TARGET", "REALISASI", "UPDATE_TERAKHIR", "KETERANGAN"],
+  "Pencapaian_Program": pencapaian.HEADER,
 };
 
-/** Tab yang sudah ada tapi header-nya versi lama (kolom baru belum ada) → bisa dilengkapi otomatis. */
+/**
+ * Tab yang sudah ada tapi header-nya versi lama → bisa diperbarui otomatis tanpa merusak data:
+ *  - kolom lama sama persis dengan awal header baru (tinggal tambah kolom di kanan), atau
+ *  - tab masih kosong (belum ada baris data) → header boleh ditulis ulang.
+ */
 async function cariHeaderLama(id, adaTab) {
   const tabs = Object.keys(SHEET_STRUKTUR).filter(t => adaTab.includes(t));
   if (!tabs.length) return [];
-  const r = await sheets.spreadsheets.values.batchGet({ spreadsheetId: id, ranges: tabs.map(t => `'${t}'!1:1`) });
+  const r = await sheets.spreadsheets.values.batchGet({ spreadsheetId: id, ranges: tabs.map(t => `'${t}'!A1:Z2`) });
   return tabs.filter((t, i) => {
-    const sekarang = (r.data.valueRanges[i].values || [[]])[0] || [];
+    const rows = r.data.valueRanges[i].values || [];
+    const sekarang = (rows[0] || []).map(h => String(h).trim().toUpperCase());
     const harus = SHEET_STRUKTUR[t];
-    // Hanya lengkapi kalau kolom yang sudah ada sama persis urutannya (aman, tidak menimpa data)
-    return sekarang.length < harus.length &&
-      sekarang.every((h, j) => String(h).trim().toUpperCase() === harus[j]);
+    if (sekarang.length === harus.length && sekarang.every((h, j) => h === harus[j])) return false;
+    const kosong = !(rows[1] || []).some(v => String(v ?? "").trim() !== "");
+    const awalanSama = sekarang.length < harus.length && sekarang.every((h, j) => h === harus[j]);
+    return awalanSama || kosong;
   });
 }
 
@@ -193,18 +200,7 @@ function parsePoin(val) {
   return parseInt(s) || 0;
 }
 
-// Angka dari sheet / form: "1.250.000" / "12,5" / "2jt" / "500rb" → number (null kalau bukan angka)
-function parseAngka(val) {
-  if (typeof val === "number") return val;
-  let s = String(val ?? "").toLowerCase().replace(/rp|\s/g, "");
-  if (!s) return null;
-  let kali = 1;
-  if (s.endsWith("jt")) { kali = 1_000_000; s = s.slice(0, -2); }
-  else if (s.endsWith("rb") || s.endsWith("k")) { kali = 1_000; s = s.replace(/(rb|k)$/, ""); }
-  s = s.replace(/\./g, "").replace(",", ".");
-  if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
-  return parseFloat(s) * kali;
-}
+const parseAngka = pencapaian.parseAngka;
 
 const now = () => new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
 
@@ -780,7 +776,7 @@ app.delete("/api/hadiah/:index", requireAuth, async (req, res) => {
 function barisInfo(b) {
   const target = String(b.target ?? "").trim();
   return [b.judul, b.deskripsi, b.gambar || "", b.mekanisme || "", b.periode || "",
-    String(b.kode || "").trim().toUpperCase(), target === "" ? "" : parseAngka(target) ?? target, b.satuan || ""];
+    String(b.kode || "").trim().toUpperCase(), target === "" ? "" : parseAngka(target) ?? target, ""];
 }
 
 function cekInfo(b) {
@@ -840,37 +836,31 @@ app.delete("/api/info/:index", requireAuth, async (req, res) => {
   } catch (e) { kirimError(res, e); }
 });
 
-// Pencapaian 1 program untuk semua toko (dibaca dari sheet Pencapaian_Program)
+// Pencapaian 1 program untuk semua toko (rekap per brand, dihitung di lib/pencapaian.js)
 app.get("/api/info/:index/pencapaian", requireAuth, async (req, res) => {
   try {
     const sheetRow = parseInt(req.params.index) + 1;
     if (!(sheetRow >= 2)) return res.status(400).json({ error: "Index tidak valid" });
+    const opsi = { valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "FORMATTED_STRING" };
+    let belumAdaTab = false;
     const [rp, rc, rt] = await Promise.all([
-      sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: `Info_Program!A${sheetRow}:H${sheetRow}`, valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "FORMATTED_STRING" }),
-      sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Pencapaian_Program!A2:F", valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "FORMATTED_STRING" })
-        .catch(e => { if (/Unable to parse range/i.test(e.message)) return { data: { values: [], belumAdaTab: true } }; throw e; }),
+      sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: `Info_Program!A${sheetRow}:H${sheetRow}`, ...opsi }),
+      sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: pencapaian.RANGE, ...opsi })
+        .catch(e => { if (/Unable to parse range/i.test(e.message)) { belumAdaTab = true; return { data: { values: [] } }; } throw e; }),
       sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Data Toko!A2:H" }),
     ]);
     const p = (rp.data.values || [[]])[0] || [];
     if (!p[0]) return res.status(404).json({ error: "Program tidak ditemukan" });
-    const key = String(p[5] || p[0]).trim().toUpperCase();
-    const targetDefault = parseAngka(p[6]);
+    const program = { judul: String(p[0]), kode: String(p[5] || "").trim(), target: parseAngka(p[6]) };
+    const baris = pencapaian.parseBaris(rc.data.values);
+    const key = pencapaian.kodeProgram(program);
     const namaToko = new Map((rt.data.values || []).map(r => [String(r[3] || "").trim().toUpperCase(), r[4] || ""]));
-    const data = (rc.data.values || [])
-      .filter(r => r && String(r[0] || "").trim().toUpperCase() === key && r[1])
-      .map(r => {
-        const kodeToko = String(r[1]).trim().toUpperCase();
-        const target = parseAngka(r[2]) ?? targetDefault;
-        const realisasi = parseAngka(r[3]);
-        return {
-          kodeToko, namaToko: namaToko.get(kodeToko) || null,
-          target, realisasi,
-          persen: target > 0 && realisasi != null ? Math.floor(realisasi / target * 100) : null,
-          update: r[4] || "", keterangan: r[5] || "",
-        };
-      })
+    const standar = baris.filter(b => b.program === key && pencapaian.KODE_SEMUA.has(b.kodeToko))
+      .map(b => ({ brand: b.brand || "(total)", target: b.target }));
+    const data = pencapaian.rekap(program, baris)
+      .map(h => ({ ...h, namaToko: namaToko.get(h.kodeToko) || null }))
       .sort((a, b) => (b.persen ?? -1) - (a.persen ?? -1));
-    res.json({ kode: key, judul: p[0], satuan: p[7] || "", targetDefault, belumAdaTab: !!rc.data.belumAdaTab, data });
+    res.json({ kode: key, judul: program.judul, satuan: pencapaian.SATUAN, targetProgram: program.target, standar, belumAdaTab, data });
   } catch (e) { kirimError(res, e); }
 });
 

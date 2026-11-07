@@ -37,6 +37,7 @@ function fmt(n) {
 // ============================================================
 
 const store = require("./lib/store");
+const pencapaian = require("./lib/pencapaian");
 const cfg = () => store.getConfig();
 const { render, normWa } = store;
 
@@ -144,19 +145,6 @@ async function getHadiahDB() {
   return cache.hadiah.data;
 }
 
-// Angka dari sheet: "1.250.000" / "12,5" / "2jt" / "500rb" → number
-function parseAngka(val) {
-  if (typeof val === "number") return val;
-  let s = String(val ?? "").toLowerCase().replace(/rp|\s/g, "");
-  if (!s) return null;
-  let kali = 1;
-  if (s.endsWith("jt")) { kali = 1_000_000; s = s.slice(0, -2); }
-  else if (s.endsWith("rb") || s.endsWith("k")) { kali = 1_000; s = s.replace(/(rb|k)$/, ""); }
-  s = s.replace(/\./g, "").replace(",", ".");
-  if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
-  return parseFloat(s) * kali;
-}
-
 // Sheet Info_Program:
 // A JUDUL, B DESKRIPSI, C GAMBAR, D MEKANISME, E PERIODE, F KODE_PROGRAM, G TARGET, H SATUAN
 async function getInfoProgram() {
@@ -170,34 +158,26 @@ async function getInfoProgram() {
     mekanisme: String(r[3] ?? ""),
     periode:   String(r[4] ?? "").trim(),
     kode:      String(r[5] || "").trim(),
-    target:    parseAngka(r[6]),
+    target:    pencapaian.parseAngka(r[6]),
     satuan:    String(r[7] || "").trim(),
   }));
   cache.info.at = now;
   return cache.info.data;
 }
 
-// Sheet Pencapaian_Program (1 baris = 1 toko di 1 program):
-// A KODE_PROGRAM, B KODE_TOKO, C TARGET, D REALISASI, E UPDATE_TERAKHIR, F KETERANGAN
+// Sheet Pencapaian_Program — format & perhitungan ada di lib/pencapaian.js
 async function getPencapaian() {
   const now = Date.now();
   if (cache.capai.data && now - cache.capai.at < CACHE_TTL_INFO) return cache.capai.data;
   let rows = [];
   try {
-    const res = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Pencapaian_Program!A2:F", valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "FORMATTED_STRING" });
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: pencapaian.RANGE, valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "FORMATTED_STRING" });
     rows = res.data.values || [];
   } catch (err) {
     // Tab belum dibuat → anggap belum ada data pencapaian
     if (!/Unable to parse range/i.test(err.message)) throw err;
   }
-  cache.capai.data = rows.filter(r => r && r[0] && r[1]).map(r => ({
-    program:    String(r[0]).trim().toUpperCase(),
-    kodeToko:   String(r[1]).trim().toUpperCase(),
-    target:     parseAngka(r[2]),
-    realisasi:  parseAngka(r[3]),
-    update:     String(r[4] || "").trim(),
-    keterangan: String(r[5] || "").trim(),
-  }));
+  cache.capai.data = pencapaian.parseBaris(rows);
   cache.capai.at = now;
   return cache.capai.data;
 }
@@ -628,43 +608,6 @@ async function kirimMenuTambahan(chatId, menu, vars) {
 }
 
 // ── INFO PROGRAM + PENCAPAIAN ─────────────────────────────────
-function fmtAngka(n, satuan = "") {
-  const angka = Number(n).toLocaleString("id-ID", { maximumFractionDigits: 2 });
-  if (/^rp\.?$/i.test(satuan)) return `Rp ${angka}`;
-  return satuan ? `${angka} ${satuan}` : angka;
-}
-
-function progressBar(pct) {
-  const isi = Math.max(0, Math.min(10, Math.floor(pct / 10)));
-  return "▓".repeat(isi) + "░".repeat(10 - isi);
-}
-
-/** Teks pencapaian 1 toko di 1 program. "" kalau program ini tidak pakai target. */
-function teksPencapaian(program, toko, capaiList) {
-  const key = (program.kode || program.judul).trim().toUpperCase();
-  const row = capaiList.find(c => c.program === key && c.kodeToko === String(toko.code).trim().toUpperCase());
-  const target = row?.target ?? program.target;
-  if (!row && target == null) return "";
-  const sat = program.satuan;
-  let t = `📊 *Pencapaian ${toko.nama}*\n`;
-  if (target != null) t += `🎯 Target    : ${fmtAngka(target, sat)}\n`;
-  if (row?.realisasi == null) {
-    t += `📈 Realisasi : _belum ada data_`;
-  } else {
-    t += `📈 Realisasi : *${fmtAngka(row.realisasi, sat)}*`;
-    if (target > 0) {
-      const pct = row.realisasi / target * 100;
-      t += `\n${progressBar(pct)} *${Math.floor(pct)}%*\n`;
-      t += pct >= 100
-        ? `🎉 Selamat, target sudah tercapai!`
-        : `💪 Kurang *${fmtAngka(target - row.realisasi, sat)}* lagi`;
-    }
-  }
-  if (row?.keterangan) t += `\n📝 ${row.keterangan}`;
-  if (row?.update) t += `\n_Update: ${row.update}_`;
-  return t;
-}
-
 /** Kirim detail 1 program (+ pencapaian toko). Return teks penutup untuk di-reply. */
 async function kirimDetailProgram(chatId, program, toko, adaLainnya) {
   let capaiList = [];
@@ -674,7 +617,7 @@ async function kirimDetailProgram(chatId, program, toko, adaLainnya) {
   const bagian = [`📢 *${program.judul}*` + (program.periode ? `\n🗓️ Periode: ${program.periode}` : "")];
   if (program.deskripsi) bagian.push(program.deskripsi);
   if (program.mekanisme) bagian.push(`📋 *Mekanisme:*\n${program.mekanisme}`);
-  const capai = teksPencapaian(program, toko, capaiList);
+  const capai = pencapaian.teksWa(program, toko, capaiList);
   if (capai) bagian.push(capai);
   const isi = bagian.join("\n\n");
   const penutup = adaLainnya

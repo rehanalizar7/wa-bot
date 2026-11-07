@@ -407,13 +407,16 @@
       <div><label class="lbl">Link Gambar <span class="text-gray-400 font-normal">(opsional)</span></label><input id="infoGambar" class="inp" placeholder="https://..."></div>
       <div class="border border-gray-200 rounded-lg p-3">
         <div class="lbl">📊 Pencapaian per toko <span class="text-gray-400 font-normal">(opsional)</span></div>
-        <p class="hint mb-2">Isi kalau program ini punya target. Realisasi tiap toko diisi di tab <b>Pencapaian_Program</b> pada spreadsheet.</p>
-        <div class="grid grid-cols-3 gap-3">
-          <div><label class="lbl">Kode program</label><input id="infoKode" class="inp uppercase" oninput="previewInfo()" placeholder="CB-NOV"></div>
-          <div><label class="lbl">Target default</label><input id="infoTarget" class="inp" inputmode="decimal" oninput="previewInfo()" placeholder="100"></div>
-          <div><label class="lbl">Satuan</label><input id="infoSatuan" class="inp" oninput="previewInfo()" placeholder="slop / Rp"></div>
+        <p class="hint mb-2">Isi kalau program ini punya target. Target per brand & realisasi tiap toko diisi di tab <b>Pencapaian_Program</b> pada spreadsheet. Satuan: <b>pack</b>.</p>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="lbl">Kode program</label><input id="infoKode" class="inp uppercase" oninput="previewInfo()" placeholder="PNM"></div>
+          <div><label class="lbl">Target total <span class="text-gray-400 font-normal">(pack, opsional)</span></label><input id="infoTarget" class="inp" inputmode="decimal" oninput="previewInfo()" placeholder="75"></div>
         </div>
-        <p class="hint mt-2">Kode program = penghubung ke tab Pencapaian_Program (kolom A). Kosong → pakai judul. Target per toko di tab itu menimpa target default.</p>
+        <div class="hint mt-2 space-y-1">
+          <div>• <b>Kode program</b> = isi kolom A di tab Pencapaian_Program. Kosong → pakai judul.</div>
+          <div>• <b>Target total</b> = minimal total pack (mis. "75 pack campur"). Kalau ada target per brand, total = yang lebih besar dari jumlah target brand atau angka ini.</div>
+          <div>• Target per brand untuk semua toko: isi baris dengan KODE_TOKO = <b>SEMUA</b>.</div>
+        </div>
       </div>
       <div><div class="lbl mb-1">Tampilan di WhatsApp:</div><div id="infoPreview" class="wa-bubble"></div></div>
     </div>
@@ -797,8 +800,8 @@ function teksInfoWa(x) {
   if (x.deskripsi) bagian.push(x.deskripsi);
   if (x.mekanisme) bagian.push(`📋 *Mekanisme:*\n${x.mekanisme}`);
   if (x.kode || String(x.target ?? "") !== "") {
-    const t = String(x.target ?? "") !== "" ? `${x.target}${x.satuan ? " " + x.satuan : ""}` : "(target per toko)";
-    bagian.push(`📊 *Pencapaian <nama toko>*\n🎯 Target    : ${t}\n📈 Realisasi : _diambil dari tab Pencapaian_Program_`);
+    const t = String(x.target ?? "") !== "" ? `${x.target} pack` : "per brand (dari tab Pencapaian_Program)";
+    bagian.push(`📊 *Pencapaian <nama toko>*\n🎯 Target total: ${t}\n📈 Realisasi per brand: _diambil dari tab Pencapaian_Program_`);
   }
   return bagian.join("\n\n");
 }
@@ -822,7 +825,7 @@ async function loadInfo() {
     </div>`;
   }).join("");
 }
-const INFO_FIELD = { judul: "infoJudulInp", periode: "infoPeriode", deskripsi: "infoDeskripsi", mekanisme: "infoMekanisme", gambar: "infoGambar", kode: "infoKode", target: "infoTarget", satuan: "infoSatuan" };
+const INFO_FIELD = { judul: "infoJudulInp", periode: "infoPeriode", deskripsi: "infoDeskripsi", mekanisme: "infoMekanisme", gambar: "infoGambar", kode: "infoKode", target: "infoTarget" };
 function formInfo() {
   const b = {};
   for (const [k, id] of Object.entries(INFO_FIELD)) b[k] = $(id).value.trim();
@@ -850,10 +853,13 @@ function hapusInfo(i) {
     if (await aksi(() => api("DELETE", "/api/info/" + x.index), "Info dihapus")) loadInfo();
   });
 }
-function angkaId(n, satuan) {
+function angkaId(n) {
   if (n === null || n === undefined) return "—";
-  const a = Number(n).toLocaleString("id-ID", { maximumFractionDigits: 2 });
-  return /^rp\.?$/i.test(satuan || "") ? `Rp ${a}` : a + (satuan ? " " + satuan : "");
+  return Number(n).toLocaleString("id-ID", { maximumFractionDigits: 2 });
+}
+function barProgres(p, kecil) {
+  const warna = p === null ? "bg-gray-300" : p >= 100 ? "bg-green-500" : p >= 50 ? "bg-blue-500" : "bg-amber-500";
+  return `<div class="${kecil ? "h-1.5" : "h-2"} bg-gray-100 rounded-full overflow-hidden"><div class="${kecil ? "h-1.5" : "h-2"} ${warna}" style="width:${Math.min(100, p || 0)}%"></div></div>`;
 }
 async function lihatPencapaian(i) {
   const x = infoData[i];
@@ -864,31 +870,30 @@ async function lihatPencapaian(i) {
   let r;
   try { r = await api("GET", `/api/info/${x.index}/pencapaian`); }
   catch (e) { $("capaiIsi").innerHTML = `<div class="text-red-500">${esc(e.message)}</div>`; return; }
-  $("capaiInfo").innerHTML = `Diambil dari tab <b>Pencapaian_Program</b> — baris dengan kolom A = <b>${esc(r.kode)}</b>. ` +
-    `Kolom: KODE_PROGRAM, KODE_TOKO, TARGET, REALISASI, UPDATE_TERAKHIR, KETERANGAN.` +
-    (r.targetDefault !== null ? ` Target default: <b>${esc(angkaId(r.targetDefault, r.satuan))}</b>.` : "");
+  const std = r.standar.length
+    ? `Target standar: ${r.standar.map(b => `<b>${esc(b.brand)}</b> ${esc(angkaId(b.target))}`).join(" · ")} pack`
+    : `Belum ada target standar (baris KODE_TOKO = SEMUA).`;
+  $("capaiInfo").innerHTML = `Tab <b>Pencapaian_Program</b>, kolom A = <b>${esc(r.kode)}</b>. ${std}` +
+    (r.targetProgram !== null ? ` Target total program: <b>${esc(angkaId(r.targetProgram))} pack</b>.` : "");
   if (r.belumAdaTab) { $("capaiIsi").innerHTML = '<div class="p-3 bg-amber-50 rounded-lg text-amber-800">Tab <b>Pencapaian_Program</b> belum ada. Buka <b>Pengaturan → Spreadsheet</b> lalu klik <b>Buat otomatis</b>.</div>'; return; }
-  if (!r.data.length) { $("capaiIsi").innerHTML = `<div class="p-3 bg-gray-50 rounded-lg text-gray-600">Belum ada data pencapaian untuk kode <b>${esc(r.kode)}</b>. Isi tab Pencapaian_Program di spreadsheet, satu baris per toko.</div>`; return; }
-  const tercapai = r.data.filter(d => d.persen !== null && d.persen >= 100).length;
+  if (!r.data.length) { $("capaiIsi").innerHTML = `<div class="p-3 bg-gray-50 rounded-lg text-gray-600">Belum ada realisasi toko untuk kode <b>${esc(r.kode)}</b>. Isi tab Pencapaian_Program: 1 baris per brand per toko (KODE_PROGRAM, KODE_TOKO, BRAND, TARGET, REALISASI, ...).</div>`; return; }
+  const tercapai = r.data.filter(d => d.tercapai).length;
   $("capaiIsi").innerHTML = `
     <div class="text-sm text-gray-600 mb-2">${r.data.length} toko · <b class="text-green-700">${tercapai} sudah capai target</b></div>
     <div class="overflow-x-auto"><table class="w-full text-sm">
       <thead class="bg-gray-50 text-gray-600 text-left"><tr>
-        <th class="px-3 py-2">Toko</th><th class="px-3 py-2 text-right">Target</th><th class="px-3 py-2 text-right">Realisasi</th>
-        <th class="px-3 py-2">Progres</th><th class="px-3 py-2">Update</th>
+        <th class="px-3 py-2">Toko</th><th class="px-3 py-2">Per brand (pack)</th><th class="px-3 py-2">Total</th><th class="px-3 py-2">Update</th>
       </tr></thead>
-      <tbody>${r.data.map(d => {
-        const p = d.persen;
-        const warna = p === null ? "bg-gray-300" : p >= 100 ? "bg-green-500" : p >= 50 ? "bg-blue-500" : "bg-amber-500";
-        return `<tr class="border-t border-gray-100">
-          <td class="px-3 py-2"><div class="font-medium text-gray-800">${esc(d.namaToko || "—")}</div><div class="text-xs ${d.namaToko ? "text-gray-400" : "text-red-500"}">${esc(d.kodeToko)}${d.namaToko ? "" : " · kode toko tidak ada di Data Toko"}</div></td>
-          <td class="px-3 py-2 text-right whitespace-nowrap">${esc(angkaId(d.target, r.satuan))}</td>
-          <td class="px-3 py-2 text-right whitespace-nowrap">${esc(angkaId(d.realisasi, r.satuan))}</td>
-          <td class="px-3 py-2 min-w-[8rem]"><div class="h-2 bg-gray-100 rounded-full overflow-hidden"><div class="h-2 ${warna}" style="width:${Math.min(100, p || 0)}%"></div></div>
-            <div class="text-xs text-gray-500 mt-1">${p === null ? "—" : p + "%"}</div></td>
-          <td class="px-3 py-2 text-xs text-gray-500">${esc(d.update)}${d.keterangan ? `<div>${esc(d.keterangan)}</div>` : ""}</td>
-        </tr>`;
-      }).join("")}</tbody>
+      <tbody>${r.data.map(d => `<tr class="border-t border-gray-100 align-top">
+          <td class="px-3 py-2"><div class="font-medium text-gray-800">${d.tercapai ? "🎉 " : ""}${esc(d.namaToko || "—")}</div><div class="text-xs ${d.namaToko ? "text-gray-400" : "text-red-500"}">${esc(d.kodeToko)}${d.namaToko ? "" : " · kode toko tidak ada di Data Toko"}</div></td>
+          <td class="px-3 py-2 min-w-[12rem]">${d.brand.length ? d.brand.map(b => `
+            <div class="mb-1.5"><div class="flex justify-between gap-2 text-xs"><span class="text-gray-700">${esc(b.brand)}</span>
+              <span class="whitespace-nowrap ${b.tercapai ? "text-green-700 font-semibold" : "text-gray-500"}">${esc(angkaId(b.realisasi))} / ${esc(angkaId(b.target))}${b.tercapai ? " ✓" : ""}</span></div>
+              ${barProgres(b.persen, true)}</div>`).join("") : '<span class="text-xs text-gray-400">tanpa rincian brand</span>'}</td>
+          <td class="px-3 py-2 min-w-[8rem]"><div class="text-xs whitespace-nowrap mb-1"><b>${esc(angkaId(d.realisasi))}</b> / ${esc(angkaId(d.target))}</div>
+            ${barProgres(d.persen)}<div class="text-xs text-gray-500 mt-1">${d.persen === null ? "—" : d.persen + "%"}${d.brand.length ? ` · ${d.brandTercapai}/${d.brand.length} brand` : ""}</div></td>
+          <td class="px-3 py-2 text-xs text-gray-500">${esc(d.update)}${d.keterangan.map(k => `<div>${esc(k)}</div>`).join("")}</td>
+        </tr>`).join("")}</tbody>
     </table></div>`;
 }
 
