@@ -104,8 +104,9 @@ const cache = {
   toko:   { data: null, at: 0 },
   hadiah: { data: null, at: 0 },
   info:   { data: null, at: 0 },
+  capai:  { data: null, at: 0 },
 };
-function clearCache() { cache.toko.at = 0; cache.hadiah.at = 0; cache.info.at = 0; }
+function clearCache() { cache.toko.at = 0; cache.hadiah.at = 0; cache.info.at = 0; cache.capai.at = 0; }
 
 async function getTokoDB() {
   const now = Date.now();
@@ -143,17 +144,62 @@ async function getHadiahDB() {
   return cache.hadiah.data;
 }
 
+// Angka dari sheet: "1.250.000" / "12,5" / "2jt" / "500rb" → number
+function parseAngka(val) {
+  if (typeof val === "number") return val;
+  let s = String(val ?? "").toLowerCase().replace(/rp|\s/g, "");
+  if (!s) return null;
+  let kali = 1;
+  if (s.endsWith("jt")) { kali = 1_000_000; s = s.slice(0, -2); }
+  else if (s.endsWith("rb") || s.endsWith("k")) { kali = 1_000; s = s.replace(/(rb|k)$/, ""); }
+  s = s.replace(/\./g, "").replace(",", ".");
+  if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
+  return parseFloat(s) * kali;
+}
+
+// Sheet Info_Program:
+// A JUDUL, B DESKRIPSI, C GAMBAR, D MEKANISME, E PERIODE, F KODE_PROGRAM, G TARGET, H SATUAN
 async function getInfoProgram() {
   const now = Date.now();
   if (cache.info.data && now - cache.info.at < CACHE_TTL_INFO) return cache.info.data;
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Info_Program!A2:C" });
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Info_Program!A2:H", valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "FORMATTED_STRING" });
   cache.info.data = (res.data.values || []).filter(r => r && r[0]).map(r => ({
-    judul:     r[0] || "",
-    deskripsi: r[1] || "",
-    gambar:    r[2] || "",
+    judul:     String(r[0] ?? "").trim(),
+    deskripsi: String(r[1] ?? ""),
+    gambar:    String(r[2] ?? "").trim(),
+    mekanisme: String(r[3] ?? ""),
+    periode:   String(r[4] ?? "").trim(),
+    kode:      String(r[5] || "").trim(),
+    target:    parseAngka(r[6]),
+    satuan:    String(r[7] || "").trim(),
   }));
   cache.info.at = now;
   return cache.info.data;
+}
+
+// Sheet Pencapaian_Program (1 baris = 1 toko di 1 program):
+// A KODE_PROGRAM, B KODE_TOKO, C TARGET, D REALISASI, E UPDATE_TERAKHIR, F KETERANGAN
+async function getPencapaian() {
+  const now = Date.now();
+  if (cache.capai.data && now - cache.capai.at < CACHE_TTL_INFO) return cache.capai.data;
+  let rows = [];
+  try {
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Pencapaian_Program!A2:F", valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "FORMATTED_STRING" });
+    rows = res.data.values || [];
+  } catch (err) {
+    // Tab belum dibuat → anggap belum ada data pencapaian
+    if (!/Unable to parse range/i.test(err.message)) throw err;
+  }
+  cache.capai.data = rows.filter(r => r && r[0] && r[1]).map(r => ({
+    program:    String(r[0]).trim().toUpperCase(),
+    kodeToko:   String(r[1]).trim().toUpperCase(),
+    target:     parseAngka(r[2]),
+    realisasi:  parseAngka(r[3]),
+    update:     String(r[4] || "").trim(),
+    keterangan: String(r[5] || "").trim(),
+  }));
+  cache.capai.at = now;
+  return cache.capai.data;
 }
 
 async function getHadiahSheetId() {
@@ -513,7 +559,7 @@ function buildPromptToko(toko, hadiahDB, infoList) {
     ? hadiahDB.map(h => `- ${h.nama} (${fmt(h.poin)} poin, stok: ${h.stok === null ? "∞" : h.stok})`).join("\n")
     : "Belum ada hadiah tersedia.";
   const infoText = infoList.length
-    ? infoList.map(i => `- ${i.judul}: ${i.deskripsi}`).join("\n")
+    ? infoList.map(i => `- ${i.judul}${i.periode ? ` (${i.periode})` : ""}: ${i.deskripsi}${i.mekanisme ? ` Mekanisme: ${i.mekanisme}` : ""}`).join("\n")
     : "Tidak ada info program aktif saat ini.";
   return (
     `Kamu adalah CS bot WhatsApp untuk program loyalitas toko. ` +
@@ -581,6 +627,69 @@ async function kirimMenuTambahan(chatId, menu, vars) {
   return teks;
 }
 
+// ── INFO PROGRAM + PENCAPAIAN ─────────────────────────────────
+function fmtAngka(n, satuan = "") {
+  const angka = Number(n).toLocaleString("id-ID", { maximumFractionDigits: 2 });
+  if (/^rp\.?$/i.test(satuan)) return `Rp ${angka}`;
+  return satuan ? `${angka} ${satuan}` : angka;
+}
+
+function progressBar(pct) {
+  const isi = Math.max(0, Math.min(10, Math.floor(pct / 10)));
+  return "▓".repeat(isi) + "░".repeat(10 - isi);
+}
+
+/** Teks pencapaian 1 toko di 1 program. "" kalau program ini tidak pakai target. */
+function teksPencapaian(program, toko, capaiList) {
+  const key = (program.kode || program.judul).trim().toUpperCase();
+  const row = capaiList.find(c => c.program === key && c.kodeToko === String(toko.code).trim().toUpperCase());
+  const target = row?.target ?? program.target;
+  if (!row && target == null) return "";
+  const sat = program.satuan;
+  let t = `📊 *Pencapaian ${toko.nama}*\n`;
+  if (target != null) t += `🎯 Target    : ${fmtAngka(target, sat)}\n`;
+  if (row?.realisasi == null) {
+    t += `📈 Realisasi : _belum ada data_`;
+  } else {
+    t += `📈 Realisasi : *${fmtAngka(row.realisasi, sat)}*`;
+    if (target > 0) {
+      const pct = row.realisasi / target * 100;
+      t += `\n${progressBar(pct)} *${Math.floor(pct)}%*\n`;
+      t += pct >= 100
+        ? `🎉 Selamat, target sudah tercapai!`
+        : `💪 Kurang *${fmtAngka(target - row.realisasi, sat)}* lagi`;
+    }
+  }
+  if (row?.keterangan) t += `\n📝 ${row.keterangan}`;
+  if (row?.update) t += `\n_Update: ${row.update}_`;
+  return t;
+}
+
+/** Kirim detail 1 program (+ pencapaian toko). Return teks penutup untuk di-reply. */
+async function kirimDetailProgram(chatId, program, toko, adaLainnya) {
+  let capaiList = [];
+  try { capaiList = await getPencapaian(); }
+  catch (err) { console.error("Gagal baca pencapaian:", err.message); }
+
+  const bagian = [`📢 *${program.judul}*` + (program.periode ? `\n🗓️ Periode: ${program.periode}` : "")];
+  if (program.deskripsi) bagian.push(program.deskripsi);
+  if (program.mekanisme) bagian.push(`📋 *Mekanisme:*\n${program.mekanisme}`);
+  const capai = teksPencapaian(program, toko, capaiList);
+  if (capai) bagian.push(capai);
+  const isi = bagian.join("\n\n");
+  const penutup = adaLainnya
+    ? `Ketik nomor program lain untuk lihat detailnya, atau *0* untuk menu.`
+    : `Ketik *0* untuk kembali ke menu.`;
+
+  if (/^https?:\/\//i.test(program.gambar)) {
+    // Caption WA dibatasi ±1000 karakter; kalau lebih, foto + judul saja lalu teks lengkap
+    const panjang = isi.length > 1000;
+    const terkirim = await kirimFoto(chatId, { gambar: program.gambar, nama: program.judul }, panjang ? `📢 *${program.judul}*` : isi);
+    if (terkirim) return panjang ? `${isi}\n\n${penutup}` : penutup;
+  }
+  return `${isi}\n\n${penutup}`;
+}
+
 async function prosesToko(wa, chatId, teks) {
   const inp = teks.trim().toLowerCase();
   const st = getState(wa);
@@ -609,69 +718,95 @@ async function prosesToko(wa, chatId, teks) {
   // Saat fitur cek poin dimatikan, poin di menu & menu tambahan disembunyikan
   const vTampil = { ...v, poin: fitur.cekPoin ? v.poin : "sedang dihitung ⏳" };
 
-  // ── MENU UTAMA ────────────────────────────────────────────
-  if (st.step === "start" || ["menu","0","halo","hi","hello","hai"].includes(inp)) {
-    setState(wa, { step: "menu" });
+  const menuUtama = () => {
     let teksMenu = render("menuUtama", vTampil);
     // Kalau template menu diubah dan {menu_tambahan} terhapus, tetap tampilkan di bawah
     if (!(cfg().pesan.menuUtama || "").includes("{menu_tambahan}")) teksMenu += v.menu_tambahan;
     return teksMenu;
+  };
+
+  // ── MENU UTAMA ────────────────────────────────────────────
+  // Chat pertama (atau setelah bot restart) yang berupa salam → tampilkan menu.
+  // Kalau chat pertama sudah berisi perintah ("info hadiah", "2", ...) → langsung diproses.
+  const chatPertama = st.step === "start";
+  if (["menu","0","halo","hi","hello","hai","p"].includes(inp)) {
+    setState(wa, { step: "menu" });
+    return menuUtama();
+  }
+  if (chatPertama) setState(wa, { step: "menu" });
+
+  // ── PILIH PROGRAM (setelah daftar program ditampilkan) ─────
+  let step = st.step;
+  if (step === "pilih_program") {
+    const opsi = st.opsiProgram || [];
+    const n = /^\d+$/.test(inp) ? parseInt(inp) : 0;
+    if (n >= 1 && n <= opsi.length) return kirimDetailProgram(chatId, opsi[n - 1], toko, opsi.length > 1);
+    // Bukan nomor program → proses sebagai perintah menu biasa
+    setState(wa, { step: "menu", opsiProgram: [] });
+    step = "menu";
   }
 
   // ── MENU ─────────────────────────────────────────────────
-  if (st.step === "menu") {
+  if (chatPertama || step === "menu") {
 
     // Menu tambahan — nomor / kata kunci persis didahulukan
     const menuPersis = store.cariMenu(inp, true, menuExtra);
     if (menuPersis) return kirimMenuTambahan(chatId, menuPersis, vTampil);
 
+    // Urutan pengecekan penting: kata yang lebih spesifik dulu.
+    // "klaim hadiah" → klaim, "info program" → program, "cek hadiah" → hadiah, baru "poin"/"cek".
+    const mauKlaim   = inp === "3" || inp.includes("klaim");
+    const mauProgram = !mauKlaim && (inp === "4" || inp.includes("program"));
+    const mauHadiah  = !mauKlaim && !mauProgram && (inp === "2" || inp.includes("hadiah") || inp === "info");
+    const mauPoin    = !mauKlaim && !mauProgram && !mauHadiah && (inp === "1" || inp.includes("poin") || inp.includes("cek"));
+
     // Cek poin
-    if (inp === "1" || inp.includes("cek") || inp.includes("poin")) {
+    if (mauPoin) {
       if (!fitur.cekPoin) return render("poinSedangDihitung", v);
       return render("cekPoin", v);
     }
 
-    // Info hadiah — tampilkan yang stok > 0 + foto
-    if (inp === "2" || inp.includes("hadiah") || (inp.includes("info") && !inp.includes("program"))) {
+    // Info hadiah — tampilkan yang stok > 0 (+ foto kalau ada)
+    if (mauHadiah) {
       const hadiahTersedia = hadiahDB.filter(h => h.stok === null || h.stok > 0);
       if (hadiahTersedia.length === 0) {
         return `😔 Saat ini belum ada hadiah yang tersedia.\n\nKetik *0* untuk menu.`;
       }
-      // Kirim foto tiap hadiah yang masih ada stok
+      // Hadiah yang punya foto dikirim sebagai foto; yang tidak punya / fotonya gagal
+      // dikumpulkan jadi daftar teks (dulu hilang begitu saja → yang tampil cuma poin).
+      const tanpaFoto = [];
       for (const h of hadiahTersedia) {
         const bisa = toko.poin >= h.poin ? "✅" : "❌";
-        await kirimFoto(chatId, h, `${bisa} *${h.nama}*\n⭐ ${fmt(h.poin)} poin`);
+        const stok = h.stok === null ? "" : ` · stok ${h.stok}`;
+        const baris = `${bisa} *${h.nama}*\n⭐ ${fmt(h.poin)} poin${stok}`;
+        const terkirim = await kirimFoto(chatId, h, baris);
+        if (!terkirim) tanpaFoto.push(baris);
       }
-      return (
-        `Poin kamu: *${fmt(toko.poin)} poin*\n\n` +
-        `Ketik *3* untuk klaim hadiah, *0* menu.`
-      );
+      const daftar = tanpaFoto.length ? `🎁 *Daftar Hadiah*\n\n${tanpaFoto.join("\n\n")}\n\n` : "";
+      const poinKamu = fitur.cekPoin ? `Poin kamu: *${fmt(toko.poin)} poin*\n` : "";
+      return `${daftar}${poinKamu}✅ = poin cukup, ❌ = poin belum cukup\n\nKetik *3* untuk klaim hadiah, *0* menu.`;
     }
 
-    // Info program
-    if (inp === "4" || inp.includes("program") || inp.includes("info program")) {
+    // Info program — 1 program langsung detail, lebih dari 1 tampilkan daftar dulu
+    if (mauProgram) {
       let infoList;
       try {
         infoList = await getInfoProgram();
       } catch (err) {
+        console.error("Gagal ambil info program:", err.message);
         return "Maaf, gagal ambil info program. Coba lagi ya. 🙏";
       }
       if (infoList.length === 0) {
         return `ℹ️ Belum ada info program saat ini.\n\nKetik *0* untuk menu.`;
       }
-      for (const info of infoList) {
-        const caption = `📢 *${info.judul}*\n\n${info.deskripsi}`;
-        const fotoTerkirim = await kirimFoto(chatId, { gambar: info.gambar, nama: info.judul }, caption);
-        // Kalau tidak ada foto / URL tidak valid / foto gagal → kirim teks saja
-        if (!fotoTerkirim) {
-          await client.sendMessage(chatId, caption);
-        }
-      }
-      return `Ketik *0* untuk kembali ke menu.`;
+      if (infoList.length === 1) return kirimDetailProgram(chatId, infoList[0], toko, false);
+      setState(wa, { step: "pilih_program", opsiProgram: infoList });
+      const daftar = infoList.map((p, i) => `${i + 1}. *${p.judul}*` + (p.periode ? `\n    _${p.periode}_` : "")).join("\n");
+      return `📢 *Program Aktif*\n\n${daftar}\n\nKetik nomornya (1–${infoList.length}) untuk lihat detail & pencapaian toko kamu.\nKetik *0* untuk menu.`;
     }
 
     // Klaim hadiah — filter yang stok tersedia, cukup poin, dan belum klaim tipe yg sama
-    if (inp === "3" || inp.includes("klaim")) {
+    if (mauKlaim) {
       if (!fitur.klaim) return render("klaimDitutup", v);
       const { sudahUtama, sudahHiburan } = await cekSudahKlaim(toko.code, hadiahDB);
 
@@ -705,6 +840,8 @@ async function prosesToko(wa, chatId, teks) {
       try { infoList = await getInfoProgram(); } catch {}
       return callGemini(buildPromptToko(toko, hadiahDB, infoList), teks);
     }
+    // Chat pertama yang tidak dikenali → sambut dengan menu, bukan "kurang ngerti"
+    if (chatPertama) return menuUtama();
     return render("tidakMengerti", v);
   }
 
@@ -712,7 +849,7 @@ async function prosesToko(wa, chatId, teks) {
   if (st.step === "pilih_hadiah") {
     if (inp === "0" || inp === "batal" || inp === "menu") {
       setState(wa, { step: "menu" });
-      return `Oke, batal ya 😊\n\n1️⃣ Cek Poin\n2️⃣ Info Hadiah\n3️⃣ Klaim Hadiah`;
+      return `Oke, batal ya 😊\n\n${menuUtama()}`;
     }
     const opsi = st.opsiHadiah || [];
     const num = parseInt(inp);
@@ -738,11 +875,35 @@ async function prosesToko(wa, chatId, teks) {
         setState(wa, { step: "menu", pendingKlaim: null });
         return render("klaimDitutup", v);
       }
-      const hadiah = st.pendingKlaim;
+      // Cek ulang dengan data terbaru: poin / stok / jatah klaim bisa berubah
+      // selama toko menunggu sebelum ketik YA.
+      const hadiah = hadiahDB.find(h => h.id === st.pendingKlaim?.id) || null;
+      if (!hadiah) {
+        setState(wa, { step: "menu", pendingKlaim: null });
+        return `Maaf, hadiah itu sudah tidak tersedia. 🙏\n\nKetik *3* untuk lihat hadiah lain, *0* menu.`;
+      }
+      if (hadiah.stok !== null && hadiah.stok <= 0) {
+        setState(wa, { step: "menu", pendingKlaim: null });
+        return `Maaf, stok *${hadiah.nama}* baru saja habis. 🙏\n\nKetik *3* untuk pilih hadiah lain, *0* menu.`;
+      }
+      if (toko.poin < hadiah.poin) {
+        setState(wa, { step: "menu", pendingKlaim: null });
+        return render("poinBelumCukup", v);
+      }
+      try {
+        const { sudahUtama, sudahHiburan } = await cekSudahKlaim(toko.code, hadiahDB);
+        if ((hadiah.tipe === "utama" && sudahUtama) || (hadiah.tipe === "hiburan" && sudahHiburan)) {
+          setState(wa, { step: "menu", pendingKlaim: null });
+          return `Hadiah ${hadiah.tipe} sudah pernah kamu klaim ya. 😊\n\nKetik *0* untuk menu.`;
+        }
+      } catch (err) {
+        console.error("Gagal cek riwayat klaim:", err.message);
+        return "Maaf, gagal menyimpan klaim. Coba lagi ya. 🙏";
+      }
       const poinBefore = toko.poin;
       const poinBaru = poinBefore - hadiah.poin;
       try {
-        await updatePoin(wa, poinBaru);
+        if (!(await updatePoin(wa, poinBaru))) throw new Error("baris toko tidak ditemukan saat update poin");
         await updateStokHadiah(hadiah); // kurangi stok 1
         await catatLog(toko, "KLAIM", hadiah.nama, hadiah.poin, poinBaru);
         await notifKlaim(toko, hadiah, poinBaru);
@@ -1875,10 +2036,25 @@ client.on("auth_failure", msg => {
   console.error("❌ Auth gagal:", msg);
   setWaState("auth_failure", { qr: null, alasan: String(msg) });
 });
-client.on("disconnected", reason => {
+client.on("disconnected", async reason => {
   console.log("⚠️ Terputus:", reason);
   setWaState("disconnected", { qr: null, alasan: String(reason) });
+  // Logout dari HP / sesi dicabut: data sesi lama membuat WA Web macet saat start
+  // berikutnya, jadi bersihkan lalu restart supaya langsung tampil QR baru.
+  if (/LOGOUT|UNPAIRED/i.test(String(reason))) {
+    try { await withTimeout(client.destroy(), 15000); } catch (_) {}
+    hapusSesi();
+    process.exit(1);
+  }
 });
+
+// Hapus profil browser + sesi WA (dipakai setelah logout / sesi tidak valid)
+function hapusSesi() {
+  try {
+    fs.rmSync("./auth_session", { recursive: true, force: true });
+    console.log("🧹 Sesi WA lama dihapus.");
+  } catch (e) { console.error("Gagal hapus sesi:", e.message); }
+}
 
 process.on("uncaughtException", err => { console.error("❌ Uncaught:", err.message); });
 process.on("unhandledRejection", err => { console.error("❌ Unhandled:", err?.message || err); });
@@ -1893,6 +2069,8 @@ setInterval(updateHeartbeat, 5 * 60 * 1000);
 
 client.on("message", async (msg) => {
   updateHeartbeat();
+  // Abaikan Status WA kontak, channel, dan siaran — jangan pernah dibalas
+  if (msg.isStatus || msg.fromMe || /@(broadcast|newsletter)$/.test(msg.from)) return;
   // Pesan dari group — hanya balas !groupid
   if (msg.from.endsWith("@g.us")) {
     if (msg.body.trim() === "!groupid") {
@@ -1958,6 +2136,7 @@ async function matikanLaluRestart(logout) {
     if (logout) await withTimeout(client.logout(), 20000);
   } catch (e) { console.error("Gagal logout:", e.message); }
   try { await withTimeout(client.destroy(), 15000); } catch (_) {}
+  if (logout) hapusSesi();
   console.log(logout ? "🚪 Logout dari WA, restart untuk scan QR baru..." : "🔄 Restart diminta dari panel...");
   // PM2 akan menyalakan ulang proses ini otomatis
   process.exit(1);
@@ -1986,12 +2165,18 @@ http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url === "/groups") {
       if (waStatus.state !== "ready") return kirimJson(res, 409, { error: "Bot belum tersambung ke WhatsApp" });
-      const chats = await withTimeout(client.getChats(), 30000);
-      const groups = chats.filter(c => c.isGroup).map(c => ({
-        id: c.id._serialized,
-        nama: c.name,
-        anggota: c.participants ? c.participants.length : null,
-      })).sort((a, b) => a.nama.localeCompare(b.nama));
+      // Baca langsung dari data WA Web di browser. client.getChats() meminta
+      // metadata tiap grup ke server satu per satu → timeout di akun yang chat-nya banyak.
+      const groups = await withTimeout(client.pupPage.evaluate(() =>
+        window.require("WAWebCollections").Chat.getModelsArray()
+          .filter(c => c.id?.server === "g.us")
+          .map(c => ({
+            id: c.id._serialized,
+            nama: c.formattedTitle || c.name || c.id.user,
+            anggota: c.groupMetadata?.participants?.length ?? null,
+          }))
+      ), 20000);
+      groups.sort((a, b) => String(a.nama).localeCompare(String(b.nama)));
       return kirimJson(res, 200, groups);
     }
 
@@ -2034,4 +2219,19 @@ http.createServer(async (req, res) => {
 }).listen(BOT_API_PORT, "127.0.0.1", () => console.log(`🔌 Internal API aktif di port ${BOT_API_PORT}`));
 
 console.log("🚀 Memulai Bot WA + Google Sheets...\n");
-client.initialize();
+client.initialize().catch(async err => {
+  console.error("❌ Gagal start WA:", err?.message || err);
+  // Kalau halaman sudah menampilkan QR login, sesi tersimpan memang sudah tidak
+  // valid (sisa logout) dan justru membuat WA Web macet → aman dihapus.
+  let halamanLogin = false;
+  try {
+    halamanLogin = await withTimeout(client.pupPage.evaluate(() =>
+      !!document.querySelector("div[data-ref]") ||
+      /Scan to log in|Link with phone number|Pindai untuk masuk|Tautkan dengan nomor telepon/i.test(document.body?.innerText || "")
+    ), 10000);
+  } catch (_) {}
+  try { await withTimeout(client.destroy(), 15000); } catch (_) {}
+  if (halamanLogin) hapusSesi();
+  // Keluar supaya PM2 menyalakan ulang (daripada macet di "sedang dinyalakan")
+  process.exit(1);
+});

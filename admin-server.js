@@ -133,8 +133,23 @@ const SHEET_STRUKTUR = {
   "Data Toko":    ["ID", "DSUB", "TSUB", "KODE_TOKO", "NAMA_TOKO", "PIC_TOKO", "WA", "POIN", "KONTRIBUTOR"],
   "List_Hadiah":  ["ID", "NAMA", "POIN", "GAMBAR", "STOK", "TIPE"],
   "LOG_KLAIM":    ["TANGGAL", "NAMA_TOKO", "PIC_TOKO", "KODE_TOKO", "AKSI", "KETERANGAN", "POIN_DIUBAH", "SISA_POIN"],
-  "Info_Program": ["JUDUL", "DESKRIPSI", "GAMBAR"],
+  "Info_Program": ["JUDUL", "DESKRIPSI", "GAMBAR", "MEKANISME", "PERIODE", "KODE_PROGRAM", "TARGET", "SATUAN"],
+  "Pencapaian_Program": ["KODE_PROGRAM", "KODE_TOKO", "TARGET", "REALISASI", "UPDATE_TERAKHIR", "KETERANGAN"],
 };
+
+/** Tab yang sudah ada tapi header-nya versi lama (kolom baru belum ada) → bisa dilengkapi otomatis. */
+async function cariHeaderLama(id, adaTab) {
+  const tabs = Object.keys(SHEET_STRUKTUR).filter(t => adaTab.includes(t));
+  if (!tabs.length) return [];
+  const r = await sheets.spreadsheets.values.batchGet({ spreadsheetId: id, ranges: tabs.map(t => `'${t}'!1:1`) });
+  return tabs.filter((t, i) => {
+    const sekarang = (r.data.valueRanges[i].values || [[]])[0] || [];
+    const harus = SHEET_STRUKTUR[t];
+    // Hanya lengkapi kalau kolom yang sudah ada sama persis urutannya (aman, tidak menimpa data)
+    return sekarang.length < harus.length &&
+      sekarang.every((h, j) => String(h).trim().toUpperCase() === harus[j]);
+  });
+}
 
 function pesanErrorSheets(e) {
   const code = e.code || e.response?.status;
@@ -176,6 +191,19 @@ function parsePoin(val) {
   if (s.includes("jt")) return Math.round(parseFloat(s) * 1_000_000);
   if (s.includes("rb") || s.includes("k")) return Math.round(parseFloat(s) * 1_000);
   return parseInt(s) || 0;
+}
+
+// Angka dari sheet / form: "1.250.000" / "12,5" / "2jt" / "500rb" → number (null kalau bukan angka)
+function parseAngka(val) {
+  if (typeof val === "number") return val;
+  let s = String(val ?? "").toLowerCase().replace(/rp|\s/g, "");
+  if (!s) return null;
+  let kali = 1;
+  if (s.endsWith("jt")) { kali = 1_000_000; s = s.slice(0, -2); }
+  else if (s.endsWith("rb") || s.endsWith("k")) { kali = 1_000; s = s.replace(/(rb|k)$/, ""); }
+  s = s.replace(/\./g, "").replace(",", ".");
+  if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
+  return parseFloat(s) * kali;
 }
 
 const now = () => new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
@@ -227,7 +255,8 @@ app.get("/api/sheet/cek", requireAuth, async (req, res) => {
     const r = await sheets.spreadsheets.get({ spreadsheetId: id });
     const ada = r.data.sheets.map(s => s.properties.title);
     const kurang = Object.keys(SHEET_STRUKTUR).filter(t => !ada.includes(t));
-    res.json({ ok: kurang.length === 0, judul: r.data.properties.title, tab: ada, kurang, email, url: `https://docs.google.com/spreadsheets/d/${id}/edit` });
+    const headerLama = await cariHeaderLama(id, ada);
+    res.json({ ok: kurang.length === 0 && headerLama.length === 0, headerLama, judul: r.data.properties.title, tab: ada, kurang, email, url: `https://docs.google.com/spreadsheets/d/${id}/edit` });
   } catch (e) {
     res.json({ ok: false, error: pesanErrorSheets(e), email });
   }
@@ -251,8 +280,18 @@ app.post("/api/sheet/siapkan", requireAuth, async (req, res) => {
         },
       });
     }
+    const headerLama = await cariHeaderLama(SID(), ada);
+    if (headerLama.length) {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: SID(),
+        requestBody: {
+          valueInputOption: "RAW",
+          data: headerLama.map(title => ({ range: `'${title}'!A1`, values: [SHEET_STRUKTUR[title]] })),
+        },
+      });
+    }
     segarkanBot();
-    res.json({ ok: true, dibuat: kurang });
+    res.json({ ok: true, dibuat: kurang, dilengkapi: headerLama });
   } catch (e) { kirimError(res, e); }
 });
 
@@ -734,14 +773,29 @@ app.delete("/api/hadiah/:index", requireAuth, async (req, res) => {
 });
 
 // ============================================================
-// INFO PROGRAM  (sheet Info_Program: A JUDUL, B DESKRIPSI, C GAMBAR)
+// INFO PROGRAM  (sheet Info_Program: A JUDUL, B DESKRIPSI, C GAMBAR,
+//                D MEKANISME, E PERIODE, F KODE_PROGRAM, G TARGET, H SATUAN)
 // ============================================================
+
+function barisInfo(b) {
+  const target = String(b.target ?? "").trim();
+  return [b.judul, b.deskripsi, b.gambar || "", b.mekanisme || "", b.periode || "",
+    String(b.kode || "").trim().toUpperCase(), target === "" ? "" : parseAngka(target) ?? target, b.satuan || ""];
+}
+
+function cekInfo(b) {
+  if (!b.judul || !b.deskripsi) return "Judul dan isi wajib diisi";
+  if (String(b.target ?? "").trim() !== "" && parseAngka(b.target) === null) return "Target harus berupa angka";
+  return null;
+}
 
 app.get("/api/info", requireAuth, async (req, res) => {
   try {
-    const r = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Info_Program!A2:C" });
+    const r = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Info_Program!A2:H", valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "FORMATTED_STRING" });
     const data = (r.data.values || []).map((row, i) => ({ row, index: i + 1 })).filter(x => x.row && x.row[0]).map(({ row, index }) => ({
       index, judul: row[0] || "", deskripsi: row[1] || "", gambar: row[2] || "",
+      mekanisme: row[3] || "", periode: row[4] || "", kode: row[5] || "",
+      target: row[6] ?? "", satuan: row[7] || "",
     }));
     res.json(data);
   } catch (e) { kirimError(res, e); }
@@ -749,12 +803,12 @@ app.get("/api/info", requireAuth, async (req, res) => {
 
 app.post("/api/info", requireAuth, async (req, res) => {
   try {
-    const { judul, deskripsi, gambar } = req.body;
-    if (!judul || !deskripsi) return res.status(400).json({ error: "Judul dan isi wajib diisi" });
+    const salah = cekInfo(req.body);
+    if (salah) return res.status(400).json({ error: salah });
     await sheets.spreadsheets.values.append({
-      spreadsheetId: SID(), range: "Info_Program!A:C",
+      spreadsheetId: SID(), range: "Info_Program!A:H",
       valueInputOption: "RAW", insertDataOption: "INSERT_ROWS",
-      requestBody: { values: [[judul, deskripsi, gambar || ""]] },
+      requestBody: { values: [barisInfo(req.body)] },
     });
     segarkanBot();
     res.json({ ok: true });
@@ -763,13 +817,13 @@ app.post("/api/info", requireAuth, async (req, res) => {
 
 app.put("/api/info/:index", requireAuth, async (req, res) => {
   try {
-    const { judul, deskripsi, gambar } = req.body;
     const sheetRow = parseInt(req.params.index) + 1;
     if (!(sheetRow >= 2)) return res.status(400).json({ error: "Index tidak valid" });
-    if (!judul || !deskripsi) return res.status(400).json({ error: "Judul dan isi wajib diisi" });
+    const salah = cekInfo(req.body);
+    if (salah) return res.status(400).json({ error: salah });
     await sheets.spreadsheets.values.update({
-      spreadsheetId: SID(), range: `Info_Program!A${sheetRow}:C${sheetRow}`,
-      valueInputOption: "RAW", requestBody: { values: [[judul, deskripsi, gambar || ""]] },
+      spreadsheetId: SID(), range: `Info_Program!A${sheetRow}:H${sheetRow}`,
+      valueInputOption: "RAW", requestBody: { values: [barisInfo(req.body)] },
     });
     segarkanBot();
     res.json({ ok: true });
@@ -783,6 +837,40 @@ app.delete("/api/info/:index", requireAuth, async (req, res) => {
     await hapusBaris("Info_Program", index);
     segarkanBot();
     res.json({ ok: true });
+  } catch (e) { kirimError(res, e); }
+});
+
+// Pencapaian 1 program untuk semua toko (dibaca dari sheet Pencapaian_Program)
+app.get("/api/info/:index/pencapaian", requireAuth, async (req, res) => {
+  try {
+    const sheetRow = parseInt(req.params.index) + 1;
+    if (!(sheetRow >= 2)) return res.status(400).json({ error: "Index tidak valid" });
+    const [rp, rc, rt] = await Promise.all([
+      sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: `Info_Program!A${sheetRow}:H${sheetRow}`, valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "FORMATTED_STRING" }),
+      sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Pencapaian_Program!A2:F", valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "FORMATTED_STRING" })
+        .catch(e => { if (/Unable to parse range/i.test(e.message)) return { data: { values: [], belumAdaTab: true } }; throw e; }),
+      sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Data Toko!A2:H" }),
+    ]);
+    const p = (rp.data.values || [[]])[0] || [];
+    if (!p[0]) return res.status(404).json({ error: "Program tidak ditemukan" });
+    const key = String(p[5] || p[0]).trim().toUpperCase();
+    const targetDefault = parseAngka(p[6]);
+    const namaToko = new Map((rt.data.values || []).map(r => [String(r[3] || "").trim().toUpperCase(), r[4] || ""]));
+    const data = (rc.data.values || [])
+      .filter(r => r && String(r[0] || "").trim().toUpperCase() === key && r[1])
+      .map(r => {
+        const kodeToko = String(r[1]).trim().toUpperCase();
+        const target = parseAngka(r[2]) ?? targetDefault;
+        const realisasi = parseAngka(r[3]);
+        return {
+          kodeToko, namaToko: namaToko.get(kodeToko) || null,
+          target, realisasi,
+          persen: target > 0 && realisasi != null ? Math.floor(realisasi / target * 100) : null,
+          update: r[4] || "", keterangan: r[5] || "",
+        };
+      })
+      .sort((a, b) => (b.persen ?? -1) - (a.persen ?? -1));
+    res.json({ kode: key, judul: p[0], satuan: p[7] || "", targetDefault, belumAdaTab: !!rc.data.belumAdaTab, data });
   } catch (e) { kirimError(res, e); }
 });
 

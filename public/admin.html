@@ -167,7 +167,7 @@
       <h2 class="text-xl font-bold text-gray-700">Info Program</h2>
       <button onclick="openInfo(null)" class="btn btn-pri">+ Tambah Info</button>
     </div>
-    <p class="text-sm text-gray-500 mb-4">Muncul saat toko pilih menu <b>4 (Info Program)</b> di WhatsApp.</p>
+    <p class="text-sm text-gray-500 mb-4">Muncul saat toko pilih menu <b>4 (Info Program)</b> di WhatsApp. Kalau programnya lebih dari 1, toko melihat daftar dulu lalu memilih nomor untuk melihat detail, mekanisme, dan <b>pencapaian tokonya sendiri</b>.</p>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="infoGrid"><div class="card p-6 text-center text-gray-400">Memuat...</div></div>
   </section>
 
@@ -400,15 +400,39 @@
     <h3 id="modalInfoJudul" class="text-lg font-bold text-gray-800 mb-4">Info Program</h3>
     <input type="hidden" id="infoIndex">
     <div class="space-y-3">
-      <div><label class="lbl">Judul <span class="text-red-500">*</span></label><input id="infoJudulInp" class="inp" oninput="previewInfo()"></div>
-      <div><label class="lbl">Isi <span class="text-red-500">*</span></label><textarea id="infoDeskripsi" rows="5" class="inp" oninput="previewInfo()"></textarea></div>
+      <div><label class="lbl">Judul <span class="text-red-500">*</span></label><input id="infoJudulInp" class="inp" oninput="previewInfo()" placeholder="Cashback 5% November"></div>
+      <div><label class="lbl">Periode <span class="text-gray-400 font-normal">(opsional)</span></label><input id="infoPeriode" class="inp" oninput="previewInfo()" placeholder="1 – 30 November 2026"></div>
+      <div><label class="lbl">Isi / Deskripsi <span class="text-red-500">*</span></label><textarea id="infoDeskripsi" rows="4" class="inp" oninput="previewInfo()"></textarea></div>
+      <div><label class="lbl">Mekanisme <span class="text-gray-400 font-normal">(opsional — cara ikut, syarat, hadiahnya)</span></label><textarea id="infoMekanisme" rows="4" class="inp" oninput="previewInfo()" placeholder="1. Belanja minimal 10 slop&#10;2. Cashback dihitung akhir bulan"></textarea></div>
       <div><label class="lbl">Link Gambar <span class="text-gray-400 font-normal">(opsional)</span></label><input id="infoGambar" class="inp" placeholder="https://..."></div>
+      <div class="border border-gray-200 rounded-lg p-3">
+        <div class="lbl">📊 Pencapaian per toko <span class="text-gray-400 font-normal">(opsional)</span></div>
+        <p class="hint mb-2">Isi kalau program ini punya target. Realisasi tiap toko diisi di tab <b>Pencapaian_Program</b> pada spreadsheet.</p>
+        <div class="grid grid-cols-3 gap-3">
+          <div><label class="lbl">Kode program</label><input id="infoKode" class="inp uppercase" oninput="previewInfo()" placeholder="CB-NOV"></div>
+          <div><label class="lbl">Target default</label><input id="infoTarget" class="inp" inputmode="decimal" oninput="previewInfo()" placeholder="100"></div>
+          <div><label class="lbl">Satuan</label><input id="infoSatuan" class="inp" oninput="previewInfo()" placeholder="slop / Rp"></div>
+        </div>
+        <p class="hint mt-2">Kode program = penghubung ke tab Pencapaian_Program (kolom A). Kosong → pakai judul. Target per toko di tab itu menimpa target default.</p>
+      </div>
       <div><div class="lbl mb-1">Tampilan di WhatsApp:</div><div id="infoPreview" class="wa-bubble"></div></div>
     </div>
     <div class="flex gap-3 mt-5">
       <button onclick="closeModal('modalInfo')" class="flex-1 btn btn-sec">Batal</button>
       <button onclick="submitInfo()" class="flex-1 btn btn-pri">Simpan</button>
     </div>
+  </div>
+</div>
+
+<!-- ===================== MODAL: PENCAPAIAN ===================== -->
+<div id="modalCapai" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 hidden px-4">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl p-6 max-h-screen overflow-y-auto">
+    <div class="flex items-start justify-between gap-3 mb-1">
+      <h3 id="capaiJudul" class="text-lg font-bold text-gray-800">Pencapaian</h3>
+      <button onclick="closeModal('modalCapai')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+    </div>
+    <p id="capaiInfo" class="hint mb-3"></p>
+    <div id="capaiIsi"></div>
   </div>
 </div>
 
@@ -768,32 +792,54 @@ function hapusHadiah(i) {
 }
 
 // ============================================================ INFO PROGRAM
+function teksInfoWa(x) {
+  const bagian = [`📢 *${x.judul}*` + (x.periode ? `\n🗓️ Periode: ${x.periode}` : "")];
+  if (x.deskripsi) bagian.push(x.deskripsi);
+  if (x.mekanisme) bagian.push(`📋 *Mekanisme:*\n${x.mekanisme}`);
+  if (x.kode || String(x.target ?? "") !== "") {
+    const t = String(x.target ?? "") !== "" ? `${x.target}${x.satuan ? " " + x.satuan : ""}` : "(target per toko)";
+    bagian.push(`📊 *Pencapaian <nama toko>*\n🎯 Target    : ${t}\n📈 Realisasi : _diambil dari tab Pencapaian_Program_`);
+  }
+  return bagian.join("\n\n");
+}
 async function loadInfo() {
   $("infoGrid").innerHTML = '<div class="card p-6 text-center text-gray-400 col-span-full">Memuat...</div>';
   try { infoData = await api("GET", "/api/info"); }
   catch (e) { $("infoGrid").innerHTML = `<div class="card p-6 text-center text-red-500 col-span-full">${esc(e.message)}</div>`; return; }
   if (!infoData.length) { $("infoGrid").innerHTML = '<div class="card p-6 text-center text-gray-400 col-span-full">Belum ada info program. Toko akan dapat pesan "Belum ada info program saat ini".</div>'; return; }
-  $("infoGrid").innerHTML = infoData.map((x, i) => `
+  $("infoGrid").innerHTML = infoData.map((x, i) => {
+    const pakaiTarget = x.kode || String(x.target ?? "") !== "";
+    return `
     <div class="card p-4">
+      <div class="text-xs text-gray-400 mb-2">Nomor ${i + 1} di daftar WA${x.kode ? ` · kode <b class="text-gray-600">${esc(x.kode)}</b>` : ""}</div>
       ${/^https?:\/\//.test(x.gambar) ? `<img src="${esc(x.gambar)}" class="w-full h-36 object-cover rounded-lg mb-3" onerror="this.style.display='none'">` : ""}
-      <div class="wa-bubble">${waFormat(`📢 *${x.judul}*\n\n${x.deskripsi}`)}</div>
+      <div class="wa-bubble">${waFormat(teksInfoWa(x))}</div>
       <div class="flex gap-2 mt-3">
+        ${pakaiTarget ? `<button onclick="lihatPencapaian(${i})" class="flex-1 text-xs border border-green-500 text-green-700 py-1.5 rounded-lg hover:bg-green-50">📊 Pencapaian</button>` : ""}
         <button onclick="openInfo(${i})" class="flex-1 text-xs border border-blue-400 text-blue-600 py-1.5 rounded-lg hover:bg-blue-50">Edit</button>
         <button onclick="hapusInfo(${i})" class="flex-1 text-xs border border-red-400 text-red-500 py-1.5 rounded-lg hover:bg-red-50">Hapus</button>
       </div>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 }
-function previewInfo() { $("infoPreview").innerHTML = waFormat(`📢 *${$("infoJudulInp").value}*\n\n${$("infoDeskripsi").value}`); }
+const INFO_FIELD = { judul: "infoJudulInp", periode: "infoPeriode", deskripsi: "infoDeskripsi", mekanisme: "infoMekanisme", gambar: "infoGambar", kode: "infoKode", target: "infoTarget", satuan: "infoSatuan" };
+function formInfo() {
+  const b = {};
+  for (const [k, id] of Object.entries(INFO_FIELD)) b[k] = $(id).value.trim();
+  b.kode = b.kode.toUpperCase();
+  return b;
+}
+function previewInfo() { $("infoPreview").innerHTML = waFormat(teksInfoWa(formInfo())); }
 function openInfo(i) {
   const x = i === null ? null : infoData[i];
   $("modalInfoJudul").textContent = x ? "Edit Info Program" : "Tambah Info Program";
   $("infoIndex").value = x ? x.index : "";
-  $("infoJudulInp").value = x ? x.judul : ""; $("infoDeskripsi").value = x ? x.deskripsi : ""; $("infoGambar").value = x ? x.gambar : "";
+  for (const [k, id] of Object.entries(INFO_FIELD)) $(id).value = x ? String(x[k] ?? "") : "";
   previewInfo(); openModal("modalInfo");
 }
 async function submitInfo() {
   const index = $("infoIndex").value;
-  const body = { judul: $("infoJudulInp").value.trim(), deskripsi: $("infoDeskripsi").value.trim(), gambar: $("infoGambar").value.trim() };
+  const body = formInfo();
   if (!body.judul || !body.deskripsi) return showToast("Judul dan isi wajib diisi", false);
   const ok = await aksi(() => index ? api("PUT", "/api/info/" + index, body) : api("POST", "/api/info", body), "Info program tersimpan!");
   if (ok) { closeModal("modalInfo"); loadInfo(); }
@@ -803,6 +849,47 @@ function hapusInfo(i) {
   konfirmasi({ judul: "Hapus info?", pesan: `"${x.judul}" akan dihapus.`, tombol: "Hapus", ikon: "🗑️" }, async () => {
     if (await aksi(() => api("DELETE", "/api/info/" + x.index), "Info dihapus")) loadInfo();
   });
+}
+function angkaId(n, satuan) {
+  if (n === null || n === undefined) return "—";
+  const a = Number(n).toLocaleString("id-ID", { maximumFractionDigits: 2 });
+  return /^rp\.?$/i.test(satuan || "") ? `Rp ${a}` : a + (satuan ? " " + satuan : "");
+}
+async function lihatPencapaian(i) {
+  const x = infoData[i];
+  $("capaiJudul").textContent = `📊 Pencapaian — ${x.judul}`;
+  $("capaiInfo").textContent = "";
+  $("capaiIsi").innerHTML = '<div class="text-center text-gray-400 py-6">Memuat...</div>';
+  openModal("modalCapai");
+  let r;
+  try { r = await api("GET", `/api/info/${x.index}/pencapaian`); }
+  catch (e) { $("capaiIsi").innerHTML = `<div class="text-red-500">${esc(e.message)}</div>`; return; }
+  $("capaiInfo").innerHTML = `Diambil dari tab <b>Pencapaian_Program</b> — baris dengan kolom A = <b>${esc(r.kode)}</b>. ` +
+    `Kolom: KODE_PROGRAM, KODE_TOKO, TARGET, REALISASI, UPDATE_TERAKHIR, KETERANGAN.` +
+    (r.targetDefault !== null ? ` Target default: <b>${esc(angkaId(r.targetDefault, r.satuan))}</b>.` : "");
+  if (r.belumAdaTab) { $("capaiIsi").innerHTML = '<div class="p-3 bg-amber-50 rounded-lg text-amber-800">Tab <b>Pencapaian_Program</b> belum ada. Buka <b>Pengaturan → Spreadsheet</b> lalu klik <b>Buat otomatis</b>.</div>'; return; }
+  if (!r.data.length) { $("capaiIsi").innerHTML = `<div class="p-3 bg-gray-50 rounded-lg text-gray-600">Belum ada data pencapaian untuk kode <b>${esc(r.kode)}</b>. Isi tab Pencapaian_Program di spreadsheet, satu baris per toko.</div>`; return; }
+  const tercapai = r.data.filter(d => d.persen !== null && d.persen >= 100).length;
+  $("capaiIsi").innerHTML = `
+    <div class="text-sm text-gray-600 mb-2">${r.data.length} toko · <b class="text-green-700">${tercapai} sudah capai target</b></div>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="bg-gray-50 text-gray-600 text-left"><tr>
+        <th class="px-3 py-2">Toko</th><th class="px-3 py-2 text-right">Target</th><th class="px-3 py-2 text-right">Realisasi</th>
+        <th class="px-3 py-2">Progres</th><th class="px-3 py-2">Update</th>
+      </tr></thead>
+      <tbody>${r.data.map(d => {
+        const p = d.persen;
+        const warna = p === null ? "bg-gray-300" : p >= 100 ? "bg-green-500" : p >= 50 ? "bg-blue-500" : "bg-amber-500";
+        return `<tr class="border-t border-gray-100">
+          <td class="px-3 py-2"><div class="font-medium text-gray-800">${esc(d.namaToko || "—")}</div><div class="text-xs ${d.namaToko ? "text-gray-400" : "text-red-500"}">${esc(d.kodeToko)}${d.namaToko ? "" : " · kode toko tidak ada di Data Toko"}</div></td>
+          <td class="px-3 py-2 text-right whitespace-nowrap">${esc(angkaId(d.target, r.satuan))}</td>
+          <td class="px-3 py-2 text-right whitespace-nowrap">${esc(angkaId(d.realisasi, r.satuan))}</td>
+          <td class="px-3 py-2 min-w-[8rem]"><div class="h-2 bg-gray-100 rounded-full overflow-hidden"><div class="h-2 ${warna}" style="width:${Math.min(100, p || 0)}%"></div></div>
+            <div class="text-xs text-gray-500 mt-1">${p === null ? "—" : p + "%"}</div></td>
+          <td class="px-3 py-2 text-xs text-gray-500">${esc(d.update)}${d.keterangan ? `<div>${esc(d.keterangan)}</div>` : ""}</td>
+        </tr>`;
+      }).join("")}</tbody>
+    </table></div>`;
 }
 
 // ============================================================ LOG
@@ -1159,8 +1246,12 @@ async function cekSheet() {
   let r; try { r = await api("GET", "/api/sheet/cek"); } catch (e) { box.innerHTML = `<span class="text-red-500">${esc(e.message)}</span>`; return; }
   if (r.error) { box.innerHTML = `<div class="text-red-600">❌ ${esc(r.error)}</div>`; return; }
   box.innerHTML = `<div class="text-green-700">✅ Tersambung ke <b>${esc(r.judul)}</b> · <a href="${esc(r.url)}" target="_blank" class="text-blue-600 underline">buka spreadsheet</a></div>` +
-    (r.kurang.length ? `<div class="mt-2 p-3 bg-amber-50 rounded-lg text-amber-800">Tab yang belum ada: <b>${r.kurang.map(esc).join(", ")}</b>
-      <button onclick="siapkanSheet()" class="btn btn-pri ml-2 !py-1">Buat otomatis</button></div>` : `<div class="hint">Semua tab yang dibutuhkan sudah ada.</div>`);
+    ((r.kurang.length || (r.headerLama || []).length)
+      ? `<div class="mt-2 p-3 bg-amber-50 rounded-lg text-amber-800">` +
+        (r.kurang.length ? `Tab yang belum ada: <b>${r.kurang.map(esc).join(", ")}</b>. ` : "") +
+        ((r.headerLama || []).length ? `Tab yang perlu kolom baru: <b>${r.headerLama.map(esc).join(", ")}</b> (data lama tidak berubah). ` : "") +
+        `<button onclick="siapkanSheet()" class="btn btn-pri ml-2 !py-1">Buat otomatis</button></div>`
+      : `<div class="hint">Semua tab yang dibutuhkan sudah ada.</div>`);
 }
 async function simpanSheet() {
   const v = $("setSheet").value.trim();
@@ -1170,7 +1261,12 @@ async function simpanSheet() {
 }
 async function siapkanSheet() {
   const r = await aksi(() => api("POST", "/api/sheet/siapkan"));
-  if (r) { showToast(r.dibuat.length ? `Tab dibuat: ${r.dibuat.join(", ")}` : "Semua tab sudah ada"); cekSheet(); }
+  if (r) {
+    const pesan = [];
+    if (r.dibuat.length) pesan.push(`Tab dibuat: ${r.dibuat.join(", ")}`);
+    if ((r.dilengkapi || []).length) pesan.push(`Kolom dilengkapi: ${r.dilengkapi.join(", ")}`);
+    showToast(pesan.join(" · ") || "Semua tab sudah lengkap"); cekSheet();
+  }
 }
 async function simpanFitur(k, el) {
   const r = await aksi(() => api("PUT", "/api/settings", { fitur: { [k]: el.checked } }), `${FITUR_INFO[k].judul} ${el.checked ? "diaktifkan" : "dimatikan"}`);
