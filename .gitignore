@@ -1,0 +1,17 @@
+node_modules/
+# Rahasia & data yang diatur dari panel web
+credentials.json
+*service-account*.json
+data/
+.env
+# Session WhatsApp
+auth_session/
+.wwebjs_auth/
+.wwebjs_cache/
+# Runtime
+*.log
+watchdog_heartbeat
+qr.png
+backup/
+*.tar.gz
+*.zip

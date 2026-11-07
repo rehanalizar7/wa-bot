@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Panel - Bot Poin Toko</title>
+<link rel="stylesheet" href="/app.css">
+<style>
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  .nav-btn.active { background-color: #2563eb; color: white; }
+  .toast { animation: slideIn .3s ease; }
+  @keyframes slideIn { from { transform: translateY(100px); opacity:0; } to { transform: translateY(0); opacity:1; } }
+  table { border-collapse: collapse; }
+  tr:hover td { background-color: #f8fafc; }
+  .inp { width: 100%; border: 1px solid #d1d5db; border-radius: .5rem; padding: .5rem .75rem; font-size: .875rem; margin-top: .25rem; background: white; }
+  .inp:focus { outline: none; box-shadow: 0 0 0 2px #60a5fa; border-color: #60a5fa; }
+  .lbl { font-size: .875rem; font-weight: 500; color: #374151; }
+  .hint { font-size: .75rem; color: #6b7280; margin-top: .25rem; }
+  .btn { padding: .5rem 1rem; border-radius: .5rem; font-size: .875rem; font-weight: 500; white-space: nowrap; }
+  .btn-pri { background: #2563eb; color: white; } .btn-pri:hover { background: #1d4ed8; }
+  .btn-sec { border: 1px solid #d1d5db; color: #374151; background: white; } .btn-sec:hover { background: #f9fafb; }
+  .btn-red { background: #ef4444; color: white; } .btn-red:hover { background: #dc2626; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .card { background: white; border-radius: .75rem; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .wa-bubble { background: #dcf8c6; border-radius: .5rem; padding: .5rem .75rem; font-size: .875rem; white-space: normal; line-height: 1.4; }
+  .chip { display: inline-block; font-size: .75rem; padding: .125rem .5rem; border-radius: 9999px; background: #eff6ff; color: #1d4ed8; cursor: pointer; margin: 0 .25rem .25rem 0; border: 1px solid #bfdbfe; }
+  .chip:hover { background: #dbeafe; }
+  .switch { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; inset: 0; background: #d1d5db; border-radius: 9999px; transition: .2s; cursor: pointer; }
+  .slider:before { content: ""; position: absolute; height: 18px; width: 18px; left: 3px; top: 3px; background: white; border-radius: 50%; transition: .2s; }
+  .switch input:checked + .slider { background: #22c55e; }
+  .switch input:checked + .slider:before { transform: translateX(20px); }
+</style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+<!-- LOGIN -->
+<div id="loginOverlay" class="fixed inset-0 bg-gray-900 bg-opacity-95 flex items-center justify-center z-[100]">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8 mx-4">
+    <div class="text-center mb-6">
+      <div class="text-4xl mb-2">🤖</div>
+      <h2 class="text-xl font-bold text-gray-800">Admin Bot Poin Toko</h2>
+      <p class="text-sm text-gray-500 mt-1">Masukkan password untuk melanjutkan</p>
+    </div>
+    <div class="space-y-4">
+      <input id="loginPassword" type="password" placeholder="Password" class="inp" onkeydown="if(event.key==='Enter') doLogin()">
+      <div id="loginError" class="text-red-500 text-xs text-center hidden"></div>
+      <button onclick="doLogin()" class="btn btn-pri w-full">Masuk</button>
+    </div>
+  </div>
+</div>
+
+<!-- HEADER -->
+<header class="bg-blue-600 text-white shadow-md sticky top-0 z-20">
+  <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+    <h1 class="text-base sm:text-lg font-bold truncate mr-2">🤖 Admin Bot Poin Toko</h1>
+    <div class="flex items-center gap-2">
+      <button id="statusDot" onclick="showTab('wa')" class="text-xs px-2 py-1 rounded-full bg-gray-400 text-white">Bot</button>
+      <button onclick="logout()" class="text-xs bg-white bg-opacity-20 text-white px-3 py-1 rounded-full hover:bg-opacity-30 border border-white border-opacity-30">Keluar</button>
+    </div>
+  </div>
+</header>
+
+<nav class="bg-white shadow-sm sticky top-12 z-10">
+  <div class="max-w-6xl mx-auto px-2 flex overflow-x-auto gap-1 py-2" id="navBar">
+    <button data-tab="dashboard" class="nav-btn active px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-blue-50 whitespace-nowrap">📊 Beranda</button>
+    <button data-tab="toko" class="nav-btn px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-blue-50 whitespace-nowrap">🏪 Toko</button>
+    <button data-tab="poin" class="nav-btn px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-blue-50 whitespace-nowrap">⭐ Poin</button>
+    <button data-tab="hadiah" class="nav-btn px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-blue-50 whitespace-nowrap">🎁 Hadiah</button>
+    <button data-tab="info" class="nav-btn px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-blue-50 whitespace-nowrap">📢 Info Program</button>
+    <button data-tab="log" class="nav-btn px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-blue-50 whitespace-nowrap">📋 Log</button>
+    <button data-tab="tim" class="nav-btn px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-blue-50 whitespace-nowrap">👥 Tim</button>
+    <button data-tab="pesan" class="nav-btn px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-blue-50 whitespace-nowrap">💬 Pesan Bot</button>
+    <button data-tab="wa" class="nav-btn px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-blue-50 whitespace-nowrap">📱 Koneksi WA</button>
+    <button data-tab="setting" class="nav-btn px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-blue-50 whitespace-nowrap">⚙️ Pengaturan</button>
+  </div>
+</nav>
+
+<main class="max-w-6xl mx-auto px-4 py-6">
+
+  <!-- ===================== BERANDA ===================== -->
+  <section id="tab-dashboard" class="tab-content active">
+    <div id="setupCard" class="card p-5 mb-6 hidden border-l-4 border-amber-400">
+      <h3 class="font-bold text-gray-800 mb-1">🚀 Langkah persiapan</h3>
+      <p class="text-sm text-gray-500 mb-3">Selesaikan langkah di bawah supaya bot siap dipakai.</p>
+      <div id="setupList" class="space-y-2 text-sm"></div>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div class="card p-4 text-center"><div id="statToko" class="text-3xl font-bold text-blue-600">-</div><div class="text-sm text-gray-500 mt-1">Total Toko</div></div>
+      <div class="card p-4 text-center"><div id="statHadiah" class="text-3xl font-bold text-purple-600">-</div><div class="text-sm text-gray-500 mt-1">Jenis Hadiah</div></div>
+      <div class="card p-4 text-center"><div id="statLog" class="text-3xl font-bold text-green-600">-</div><div class="text-sm text-gray-500 mt-1">Klaim (200 log terakhir)</div></div>
+      <div class="card p-4 text-center"><div id="statPoin" class="text-3xl font-bold text-orange-500">-</div><div class="text-sm text-gray-500 mt-1">Total Poin</div></div>
+    </div>
+    <div class="card p-4">
+      <h3 class="font-semibold text-gray-700 mb-3">Top 5 Poin Tertinggi</h3>
+      <div id="topPoin" class="text-sm text-gray-500">Memuat...</div>
+    </div>
+  </section>
+
+  <!-- ===================== TOKO ===================== -->
+  <section id="tab-toko" class="tab-content">
+    <div class="flex flex-col gap-3 mb-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-xl font-bold text-gray-700">Data Toko</h2>
+        <button onclick="openTambahToko()" class="btn btn-pri">+ Tambah Toko</button>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <input id="searchToko" oninput="filterToko()" type="text" placeholder="Cari nama / kode / WA..." class="inp !mt-0 flex-1 min-w-40">
+        <select id="filterDsub" onchange="filterToko()" class="inp !mt-0 !w-auto"><option value="">Semua DSUB</option></select>
+        <select id="filterTsub" onchange="filterToko()" class="inp !mt-0 !w-auto"><option value="">Semua TSUB</option></select>
+        <button onclick="resetFilterToko()" class="btn btn-sec">Reset</button>
+      </div>
+      <div id="filterInfo" class="text-xs text-gray-400 hidden"></div>
+    </div>
+    <div class="card overflow-hidden"><div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-gray-600 text-left"><tr>
+          <th class="px-4 py-3">Nama Toko</th><th class="px-4 py-3">Kode</th><th class="px-4 py-3">DSUB/TSUB</th>
+          <th class="px-4 py-3">PIC</th><th class="px-4 py-3">WA</th><th class="px-4 py-3 text-right">Poin</th><th class="px-4 py-3 text-center">Aksi</th>
+        </tr></thead>
+        <tbody id="tokoTable"><tr><td colspan="7" class="text-center py-8 text-gray-400">Memuat...</td></tr></tbody>
+      </table>
+    </div></div>
+  </section>
+
+  <!-- ===================== POIN ===================== -->
+  <section id="tab-poin" class="tab-content">
+    <h2 class="text-xl font-bold text-gray-700 mb-4">Tambah / Kurangi Poin</h2>
+    <div class="card p-6 max-w-md">
+      <div class="mb-4">
+        <label class="lbl">Cari Toko</label>
+        <input id="poinSearchWa" oninput="searchTokoForPoin()" type="text" placeholder="Ketik nama toko, kode, atau nomor WA..." class="inp">
+        <div id="poinSearchResult" class="mt-1 border rounded-lg overflow-hidden hidden"></div>
+      </div>
+      <div id="poinTokoInfo" class="hidden mb-4 bg-blue-50 rounded-lg p-3 text-sm">
+        <div class="font-semibold text-blue-800" id="poinTokoNama"></div>
+        <div class="text-blue-600">Poin saat ini: <span id="poinTokoSaat" class="font-bold"></span></div>
+      </div>
+      <input type="hidden" id="poinWaTarget">
+      <div class="mb-4">
+        <label class="lbl">Jumlah Poin</label>
+        <input id="poinJumlah" type="number" min="1" placeholder="Contoh: 100" class="inp">
+      </div>
+      <div class="flex gap-3">
+        <button onclick="submitPoin('tambah')" class="flex-1 btn bg-green-500 text-white hover:bg-green-600">+ Tambah Poin</button>
+        <button onclick="submitPoin('kurangi')" class="flex-1 btn btn-red">− Kurangi Poin</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== HADIAH ===================== -->
+  <section id="tab-hadiah" class="tab-content">
+    <div class="flex items-center justify-between mb-2">
+      <h2 class="text-xl font-bold text-gray-700">Hadiah</h2>
+      <button onclick="openHadiah(null)" class="btn btn-pri">+ Tambah Hadiah</button>
+    </div>
+    <p class="text-sm text-gray-500 mb-4">Tiap toko boleh klaim <b>1 hadiah utama</b> dan <b>1 hadiah hiburan</b> per periode.</p>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" id="hadiahGrid"><div class="card p-6 text-center text-gray-400">Memuat...</div></div>
+  </section>
+
+  <!-- ===================== INFO PROGRAM ===================== -->
+  <section id="tab-info" class="tab-content">
+    <div class="flex items-center justify-between mb-2">
+      <h2 class="text-xl font-bold text-gray-700">Info Program</h2>
+      <button onclick="openInfo(null)" class="btn btn-pri">+ Tambah Info</button>
+    </div>
+    <p class="text-sm text-gray-500 mb-4">Muncul saat toko pilih menu <b>4 (Info Program)</b> di WhatsApp.</p>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="infoGrid"><div class="card p-6 text-center text-gray-400">Memuat...</div></div>
+  </section>
+
+  <!-- ===================== LOG ===================== -->
+  <section id="tab-log" class="tab-content">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-xl font-bold text-gray-700">Riwayat (200 terakhir)</h2>
+      <button onclick="loadLog()" class="btn btn-sec">🔄 Refresh</button>
+    </div>
+    <div class="card overflow-hidden"><div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-gray-600 text-left"><tr>
+          <th class="px-4 py-3">Waktu</th><th class="px-4 py-3">Toko</th><th class="px-4 py-3">Aksi</th>
+          <th class="px-4 py-3">Keterangan</th><th class="px-4 py-3 text-right">Poin</th><th class="px-4 py-3 text-right">Sisa</th>
+        </tr></thead>
+        <tbody id="logTable"><tr><td colspan="6" class="text-center py-8 text-gray-400">Memuat...</td></tr></tbody>
+      </table>
+    </div></div>
+  </section>
+
+  <!-- ===================== TIM ===================== -->
+  <section id="tab-tim" class="tab-content">
+    <h2 class="text-xl font-bold text-gray-700 mb-1">Tim</h2>
+    <p class="text-sm text-gray-500 mb-4">Nomor yang didaftarkan di sini dapat menu khusus saat chat ke bot. Satu nomor hanya boleh punya 1 peran.</p>
+    <div id="timWrap" class="space-y-6"><div class="card p-6 text-center text-gray-400">Memuat...</div></div>
+  </section>
+
+  <!-- ===================== PESAN BOT ===================== -->
+  <section id="tab-pesan" class="tab-content">
+    <h2 class="text-xl font-bold text-gray-700 mb-1">Pesan Bot</h2>
+    <p class="text-sm text-gray-500 mb-1">Ubah kata-kata yang dikirim bot ke toko. Perubahan langsung berlaku setelah disimpan.</p>
+    <p class="text-sm text-gray-500 mb-4">Klik kata isian (contoh <span class="chip !cursor-default">{poin}</span>) untuk memasukkan data otomatis. Format WhatsApp: <code>*tebal*</code>, <code>_miring_</code>.</p>
+    <div id="pesanWrap" class="space-y-4"><div class="card p-6 text-center text-gray-400">Memuat...</div></div>
+  </section>
+
+  <!-- ===================== KONEKSI WA ===================== -->
+  <section id="tab-wa" class="tab-content">
+    <h2 class="text-xl font-bold text-gray-700 mb-4">Koneksi WhatsApp</h2>
+    <div class="grid md:grid-cols-2 gap-6">
+      <div class="card p-5">
+        <h3 class="font-semibold text-gray-800 mb-3">Status Bot</h3>
+        <div id="waStatusBox" class="text-sm text-gray-500">Memuat...</div>
+        <div id="waQrBox" class="hidden mt-4 text-center">
+          <img id="waQrImg" class="mx-auto border rounded-lg" width="280" height="280" alt="QR WhatsApp">
+          <ol class="text-left text-sm text-gray-600 mt-3 list-decimal list-inside space-y-1">
+            <li>Buka WhatsApp di HP yang akan jadi nomor bot</li>
+            <li>Ketuk <b>⋮</b> (atau Pengaturan) → <b>Perangkat tertaut</b></li>
+            <li>Ketuk <b>Tautkan perangkat</b>, lalu arahkan kamera ke QR di atas</li>
+          </ol>
+          <p class="hint">QR berganti otomatis tiap ±20 detik, halaman ini ikut memperbarui.</p>
+        </div>
+        <div class="flex flex-wrap gap-2 mt-5 pt-4 border-t">
+          <button onclick="waRestart()" class="btn btn-sec">🔄 Restart Bot</button>
+          <button onclick="waLogout()" class="btn btn-sec !text-red-600 !border-red-300">📵 Ganti Nomor Bot</button>
+        </div>
+        <p class="hint">Restart kalau bot tidak membalas. "Ganti nomor" akan memutus WA sekarang lalu menampilkan QR baru.</p>
+      </div>
+
+      <div class="card p-5">
+        <h3 class="font-semibold text-gray-800 mb-1">Grup Notifikasi</h3>
+        <p class="text-sm text-gray-500 mb-3">Grup WA yang menerima laporan klaim, tambah poin, dan toko baru. Nomor bot harus sudah jadi anggota grup.</p>
+        <div class="text-sm mb-3">Grup terpilih: <b id="grupAktif">-</b></div>
+        <button onclick="loadGroups()" class="btn btn-sec mb-3">📋 Pilih dari daftar grup</button>
+        <div id="grupList" class="space-y-1 max-h-72 overflow-y-auto"></div>
+        <div class="flex gap-2 mt-3">
+          <button onclick="tesNotif()" class="btn btn-sec">📨 Kirim pesan tes</button>
+          <button onclick="hapusGrup()" class="btn btn-sec !text-red-600">Matikan notifikasi grup</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== PENGATURAN ===================== -->
+  <section id="tab-setting" class="tab-content">
+    <h2 class="text-xl font-bold text-gray-700 mb-4">Pengaturan</h2>
+    <div class="space-y-6">
+
+      <div class="card p-5">
+        <h3 class="font-semibold text-gray-800 mb-1">📗 Spreadsheet</h3>
+        <p class="text-sm text-gray-500 mb-3">Google Sheets tempat data toko, poin, dan hadiah disimpan.</p>
+        <div class="bg-gray-50 rounded-lg p-3 text-sm mb-3">
+          <div class="font-medium text-gray-700 mb-1">Cara menyambungkan spreadsheet baru:</div>
+          <ol class="list-decimal list-inside text-gray-600 space-y-1">
+            <li>Buat Google Sheets baru (atau buka yang sudah ada)</li>
+            <li>Klik <b>Bagikan / Share</b>, tambahkan email ini sebagai <b>Editor</b>:
+              <div class="flex items-center gap-2 mt-1"><code id="saEmail" class="bg-white border rounded px-2 py-1 text-xs break-all">-</code>
+              <button onclick="salin('saEmail')" class="text-xs text-blue-600 hover:underline">Salin</button></div></li>
+            <li>Salin link spreadsheet dari browser, tempel di bawah, lalu klik Simpan</li>
+          </ol>
+        </div>
+        <label class="lbl">Link atau ID spreadsheet</label>
+        <div class="flex gap-2">
+          <input id="setSheet" class="inp" placeholder="https://docs.google.com/spreadsheets/d/....">
+          <button onclick="simpanSheet()" class="btn btn-pri mt-1">Simpan</button>
+        </div>
+        <div id="sheetStatus" class="text-sm mt-3"></div>
+      </div>
+
+      <div class="card p-5">
+        <h3 class="font-semibold text-gray-800 mb-3">🔘 Fitur</h3>
+        <div id="fiturList" class="divide-y"></div>
+      </div>
+
+      <div class="card p-5">
+        <h3 class="font-semibold text-gray-800 mb-1">👑 Super Admin</h3>
+        <p class="text-sm text-gray-500 mb-3">Nomor admin utama. Tidak bisa dihapus lewat perintah WA.</p>
+        <div class="flex gap-2 max-w-md">
+          <input id="setSuperAdmin" class="inp" placeholder="0812xxxxxxxx">
+          <button onclick="simpanSuperAdmin()" class="btn btn-pri mt-1">Simpan</button>
+        </div>
+      </div>
+
+      <div class="card p-5">
+        <div class="flex items-center justify-between mb-1">
+          <h3 class="font-semibold text-gray-800">✨ Jawaban AI (uji coba)</h3>
+          <label class="switch"><input type="checkbox" id="aiAktif" onchange="simpanAI()"><span class="slider"></span></label>
+        </div>
+        <p class="text-sm text-gray-500 mb-3">Kalau aktif, nomor tester yang mengetik di luar menu akan dijawab AI (Gemini).</p>
+        <div class="grid md:grid-cols-2 gap-4">
+          <div>
+            <label class="lbl">Nomor tester (satu per baris)</label>
+            <textarea id="aiTester" rows="3" class="inp" placeholder="0812xxxxxxxx"></textarea>
+          </div>
+          <div>
+            <label class="lbl">API Key Gemini</label>
+            <input id="aiKey" type="password" class="inp" placeholder="">
+            <div id="aiKeyInfo" class="hint"></div>
+            <label class="lbl block mt-3">Model</label>
+            <input id="aiModel" class="inp" placeholder="gemini-2.5-flash">
+          </div>
+        </div>
+        <div class="flex gap-2 mt-3">
+          <button onclick="simpanAI()" class="btn btn-pri">Simpan</button>
+          <button onclick="hapusKeyAI()" class="btn btn-sec !text-red-600">Hapus API key</button>
+        </div>
+      </div>
+
+      <div class="card p-5">
+        <h3 class="font-semibold text-gray-800 mb-1">📊 Kategori Kontributor</h3>
+        <p class="text-sm text-gray-500 mb-3">Dipakai di laporan RINGKASAN untuk RE / Supervisor / Manajer. Kode harus sama dengan isi kolom KONTRIBUTOR di sheet Data Toko.</p>
+        <div id="katList" class="space-y-2"></div>
+        <div class="flex gap-2 mt-3">
+          <button onclick="tambahKat()" class="btn btn-sec">+ Tambah kategori</button>
+          <button onclick="simpanKat()" class="btn btn-pri">Simpan</button>
+        </div>
+      </div>
+
+      <div class="card p-5">
+        <h3 class="font-semibold text-gray-800 mb-3">🔑 Ganti Password Panel</h3>
+        <div class="grid md:grid-cols-3 gap-3 max-w-2xl">
+          <div><label class="lbl">Password lama</label><input id="pwLama" type="password" class="inp"></div>
+          <div><label class="lbl">Password baru</label><input id="pwBaru" type="password" class="inp" placeholder="min. 8 karakter"></div>
+          <div><label class="lbl">Ulangi password baru</label><input id="pwUlang" type="password" class="inp"></div>
+        </div>
+        <button onclick="gantiPassword()" class="btn btn-pri mt-3">Ganti Password</button>
+      </div>
+
+    </div>
+  </section>
+</main>
+
+<!-- ===================== MODAL: TOKO ===================== -->
+<div id="modalToko" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 hidden px-4">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-screen overflow-y-auto">
+    <h3 id="modalTokoJudul" class="text-lg font-bold text-gray-800 mb-4">Toko</h3>
+    <input type="hidden" id="tokoWaLama">
+    <div class="space-y-3">
+      <div><label class="lbl">Nomor WA <span class="text-red-500">*</span></label><input id="tokoWa" class="inp" placeholder="0812xxxxxxxx"></div>
+      <div><label class="lbl">Kode Toko <span class="text-red-500">*</span></label><input id="tokoKode" class="inp" placeholder="SUB12345"></div>
+      <div><label class="lbl">Nama Toko <span class="text-red-500">*</span></label><input id="tokoNama" class="inp" placeholder="Toko Maju Jaya"></div>
+      <div><label class="lbl">Nama PIC <span class="text-red-500">*</span></label><input id="tokoPic" class="inp" placeholder="Nama penjaga toko"></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="lbl">DSUB</label><input id="tokoDsub" class="inp" list="dlDsub"></div>
+        <div><label class="lbl">TSUB</label><input id="tokoTsub" class="inp" list="dlTsub"></div>
+      </div>
+      <div id="tokoPoinWrap"><label class="lbl">Poin</label><input id="tokoPoin" type="number" class="inp"></div>
+    </div>
+    <div class="flex gap-3 mt-5">
+      <button onclick="closeModal('modalToko')" class="flex-1 btn btn-sec">Batal</button>
+      <button onclick="submitToko()" class="flex-1 btn btn-pri">Simpan</button>
+    </div>
+  </div>
+</div>
+<datalist id="dlDsub"></datalist><datalist id="dlTsub"></datalist>
+
+<!-- ===================== MODAL: HADIAH ===================== -->
+<div id="modalHadiah" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 hidden px-4">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-screen overflow-y-auto">
+    <h3 id="modalHadiahJudul" class="text-lg font-bold text-gray-800 mb-4">Hadiah</h3>
+    <input type="hidden" id="hadiahIndex">
+    <div class="space-y-3">
+      <div><label class="lbl">Nama Hadiah <span class="text-red-500">*</span></label><input id="hadiahNama" class="inp" placeholder="Magic Com"></div>
+      <div><label class="lbl">Poin dibutuhkan <span class="text-red-500">*</span></label><input id="hadiahPoin" type="number" class="inp" placeholder="25000"></div>
+      <div><label class="lbl">Jenis</label>
+        <select id="hadiahTipe" class="inp"><option value="utama">Hadiah utama</option><option value="hiburan">Hadiah hiburan</option></select></div>
+      <div><label class="lbl">Link Foto</label><input id="hadiahGambar" class="inp" placeholder="https://..." oninput="previewImg('hadiahGambar','hadiahPreview')">
+        <img id="hadiahPreview" class="hidden mt-2 rounded-lg max-h-32 w-full object-cover" onerror="this.classList.add('hidden')"></div>
+      <div><label class="lbl">Stok <span class="text-gray-400 font-normal">(kosongkan = tidak terbatas)</span></label><input id="hadiahStok" type="number" min="0" class="inp" placeholder="Kosong = ∞"></div>
+    </div>
+    <div class="flex gap-3 mt-5">
+      <button onclick="closeModal('modalHadiah')" class="flex-1 btn btn-sec">Batal</button>
+      <button onclick="submitHadiah()" class="flex-1 btn btn-pri">Simpan</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MODAL: INFO ===================== -->
+<div id="modalInfo" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 hidden px-4">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-screen overflow-y-auto">
+    <h3 id="modalInfoJudul" class="text-lg font-bold text-gray-800 mb-4">Info Program</h3>
+    <input type="hidden" id="infoIndex">
+    <div class="space-y-3">
+      <div><label class="lbl">Judul <span class="text-red-500">*</span></label><input id="infoJudulInp" class="inp" oninput="previewInfo()"></div>
+      <div><label class="lbl">Isi <span class="text-red-500">*</span></label><textarea id="infoDeskripsi" rows="5" class="inp" oninput="previewInfo()"></textarea></div>
+      <div><label class="lbl">Link Gambar <span class="text-gray-400 font-normal">(opsional)</span></label><input id="infoGambar" class="inp" placeholder="https://..."></div>
+      <div><div class="lbl mb-1">Tampilan di WhatsApp:</div><div id="infoPreview" class="wa-bubble"></div></div>
+    </div>
+    <div class="flex gap-3 mt-5">
+      <button onclick="closeModal('modalInfo')" class="flex-1 btn btn-sec">Batal</button>
+      <button onclick="submitInfo()" class="flex-1 btn btn-pri">Simpan</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MODAL: TIM ===================== -->
+<div id="modalTim" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 hidden px-4">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+    <h3 id="modalTimJudul" class="text-lg font-bold text-gray-800 mb-4">Anggota</h3>
+    <input type="hidden" id="timRole"><input type="hidden" id="timWaLama">
+    <div class="space-y-3">
+      <div><label class="lbl">Nomor WA <span class="text-red-500">*</span></label><input id="timWa" class="inp" placeholder="0812xxxxxxxx"></div>
+      <div id="timNamaWrap"><label class="lbl">Nama <span class="text-red-500">*</span></label><input id="timNama" class="inp"></div>
+      <div id="timWilayahWrap"><label class="lbl" id="timWilayahLbl">Wilayah</label><input id="timWilayah" class="inp">
+        <div class="hint" id="timWilayahHint"></div></div>
+    </div>
+    <div class="flex gap-3 mt-5">
+      <button onclick="closeModal('modalTim')" class="flex-1 btn btn-sec">Batal</button>
+      <button onclick="submitTim()" class="flex-1 btn btn-pri">Simpan</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MODAL: KONFIRMASI ===================== -->
+<div id="modalKonfirmasi" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-[60] hidden px-4">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
+    <div id="konfIcon" class="text-4xl mb-3">⚠️</div>
+    <h3 id="konfJudul" class="text-lg font-bold text-gray-800 mb-2">Yakin?</h3>
+    <p id="konfMsg" class="text-sm text-gray-500 mb-5"></p>
+    <div class="flex gap-3">
+      <button onclick="closeModal('modalKonfirmasi')" class="flex-1 btn btn-sec">Batal</button>
+      <button id="konfBtn" class="flex-1 btn btn-red">Ya</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] hidden max-w-sm w-[90%]">
+  <div id="toastMsg" class="toast px-5 py-3 rounded-xl shadow-lg text-white text-sm font-medium text-center"></div>
+</div>
+
+<script>
+let sessionToken = sessionStorage.getItem("adminToken") || "";
+let tokoData = [], tokoFiltered = [], hadiahData = [], infoData = [], timData = null, settings = null;
+let waPoll = null;
+
+// ============================================================ UTIL
+const $ = id => document.getElementById(id);
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function fmt(n) { return Number(n || 0).toLocaleString("id-ID"); }
+function waFormat(t) {
+  return esc(t)
+    .replace(/\*([^*\n]+)\*/g, "<b>$1</b>")
+    .replace(/(^|[\s(])_([^_\n]+)_/g, "$1<i>$2</i>")
+    .replace(/~([^~\n]+)~/g, "<s>$1</s>")
+    .replace(/\n/g, "<br>");
+}
+function showToast(msg, ok = true) {
+  $("toastMsg").textContent = msg;
+  $("toastMsg").className = `toast px-5 py-3 rounded-xl shadow-lg text-white text-sm font-medium text-center ${ok ? "bg-green-600" : "bg-red-500"}`;
+  $("toast").classList.remove("hidden");
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => $("toast").classList.add("hidden"), ok ? 3000 : 6000);
+}
+function openModal(id) { $(id).classList.remove("hidden"); }
+function closeModal(id) { $(id).classList.add("hidden"); }
+function konfirmasi({ judul = "Yakin?", pesan = "", tombol = "Ya", ikon = "⚠️" }, onOk) {
+  $("konfJudul").textContent = judul; $("konfMsg").textContent = pesan;
+  $("konfBtn").textContent = tombol; $("konfIcon").textContent = ikon;
+  $("konfBtn").onclick = async () => { closeModal("modalKonfirmasi"); await onOk(); };
+  openModal("modalKonfirmasi");
+}
+function previewImg(inputId, imgId) {
+  const url = $(inputId).value.trim(), img = $(imgId);
+  if (!/^https?:\/\//.test(url)) { img.classList.add("hidden"); return; }
+  img.src = url; img.classList.remove("hidden");
+}
+function salin(id) { navigator.clipboard.writeText($(id).textContent).then(() => showToast("Disalin!")); }
+
+async function api(method, url, body) {
+  const opt = { method, headers: { "Authorization": sessionToken } };
+  if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+  const r = await fetch(url, opt);
+  if (r.status === 401) { pindahKeLogin(); throw new Error("Sesi habis, silakan login lagi"); }
+  let data; try { data = await r.json(); } catch { data = {}; }
+  if (!r.ok) throw new Error(data.error || `Gagal (${r.status})`);
+  return data;
+}
+// Jalankan aksi + tampilkan error sebagai toast
+async function aksi(fn, pesanOk) {
+  try { const r = await fn(); if (pesanOk) showToast(pesanOk); return r; }
+  catch (e) { showToast(e.message, false); return undefined; }
+}
+
+// ============================================================ NAVIGASI
+const loaders = {
+  dashboard: () => loadDashboard(),
+  toko: () => loadToko(),
+  hadiah: () => loadHadiah(),
+  info: () => loadInfo(),
+  log: () => loadLog(),
+  tim: () => loadTim(),
+  pesan: () => loadPesan(),
+  wa: () => loadWa(),
+  setting: () => loadSetting(),
+};
+function showTab(name) {
+  document.querySelectorAll(".tab-content").forEach(el => el.classList.toggle("active", el.id === "tab-" + name));
+  document.querySelectorAll(".nav-btn").forEach(el => el.classList.toggle("active", el.dataset.tab === name));
+  clearInterval(waPoll); waPoll = null;
+  if (loaders[name]) loaders[name]();
+  location.hash = name;
+}
+document.querySelectorAll(".nav-btn").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+
+// ============================================================ BERANDA
+async function loadDashboard() {
+  const [toko, hadiah, log] = await Promise.all([
+    api("GET", "/api/toko").catch(() => []),
+    api("GET", "/api/hadiah").catch(() => []),
+    api("GET", "/api/log").catch(() => []),
+  ]);
+  $("statToko").textContent = toko.length;
+  $("statHadiah").textContent = hadiah.length;
+  $("statLog").textContent = log.filter(l => l.aksi === "KLAIM").length;
+  $("statPoin").textContent = fmt(toko.reduce((s, t) => s + (t.poin || 0), 0));
+  const top5 = [...toko].sort((a, b) => b.poin - a.poin).slice(0, 5);
+  $("topPoin").innerHTML = top5.length
+    ? top5.map((t, i) => `<div class="flex justify-between py-2 border-b last:border-0">
+        <span>${i + 1}. <b>${esc(t.nama)}</b> <span class="text-gray-400 text-xs">(${esc(t.kode)})</span></span>
+        <span class="font-bold text-blue-600">${fmt(t.poin)} poin</span></div>`).join("")
+    : '<div class="text-gray-400">Belum ada data</div>';
+  loadSetup();
+}
+
+async function loadSetup() {
+  const [s, sheet, wa, tim] = await Promise.all([
+    api("GET", "/api/settings").catch(() => null),
+    api("GET", "/api/sheet/cek").catch(() => ({ ok: false })),
+    api("GET", "/api/wa/status").catch(() => ({ state: "mati" })),
+    api("GET", "/api/tim").catch(() => null),
+  ]);
+  if (!s) return;
+  settings = s;
+  const langkah = [
+    { ok: !!s.serviceAccountEmail, teks: "File credentials.json terpasang di VPS", tab: null },
+    { ok: !!s.spreadsheetId && !sheet.error, teks: "Spreadsheet tersambung", tab: "setting" },
+    { ok: sheet.ok, teks: "Tab sheet lengkap (Data Toko, List_Hadiah, LOG_KLAIM, Info_Program)", tab: "setting" },
+    { ok: wa.state === "ready", teks: "WhatsApp bot tersambung", tab: "wa" },
+    { ok: !!s.notifGroupId, teks: "Grup notifikasi dipilih", tab: "wa" },
+    { ok: !!s.superAdmin, teks: "Nomor super admin diisi", tab: "setting" },
+    { ok: tim && tim.re.length > 0, teks: "Minimal 1 RE didaftarkan (untuk notif klaim per wilayah)", tab: "tim" },
+  ];
+  const belum = langkah.filter(l => !l.ok).length;
+  $("setupCard").classList.toggle("hidden", belum === 0);
+  $("setupList").innerHTML = langkah.map(l => `
+    <div class="flex items-center gap-2">
+      <span>${l.ok ? "✅" : "⬜"}</span>
+      <span class="${l.ok ? "text-gray-400 line-through" : "text-gray-700"}">${esc(l.teks)}</span>
+      ${!l.ok && l.tab ? `<button onclick="showTab('${l.tab}')" class="text-xs text-blue-600 hover:underline ml-auto">Atur →</button>` : ""}
+    </div>`).join("");
+}
+
+// ============================================================ TOKO
+async function loadToko() {
+  $("tokoTable").innerHTML = '<tr><td colspan="7" class="text-center py-8 text-gray-400">Memuat...</td></tr>';
+  try { tokoData = await api("GET", "/api/toko"); }
+  catch (e) { $("tokoTable").innerHTML = `<tr><td colspan="7" class="text-center py-8 text-red-500">${esc(e.message)}</td></tr>`; return; }
+  populateFilterOptions();
+  filterToko();
+}
+function uniq(arr) { return [...new Set(arr.filter(Boolean))].sort(); }
+function populateFilterOptions() {
+  const dsub = uniq(tokoData.map(t => t.dsub)), tsub = uniq(tokoData.map(t => t.tsub));
+  const d = $("filterDsub"), t = $("filterTsub"), dv = d.value, tv = t.value;
+  d.innerHTML = '<option value="">Semua DSUB</option>' + dsub.map(v => `<option>${esc(v)}</option>`).join("");
+  t.innerHTML = '<option value="">Semua TSUB</option>' + tsub.map(v => `<option>${esc(v)}</option>`).join("");
+  d.value = dv; t.value = tv;
+  $("dlDsub").innerHTML = dsub.map(v => `<option value="${esc(v)}">`).join("");
+  $("dlTsub").innerHTML = tsub.map(v => `<option value="${esc(v)}">`).join("");
+}
+function filterToko() {
+  const q = $("searchToko").value.toLowerCase(), dsub = $("filterDsub").value, tsub = $("filterTsub").value;
+  tokoFiltered = tokoData.filter(t =>
+    (!q || t.nama.toLowerCase().includes(q) || t.kode.toLowerCase().includes(q) || t.wa.includes(q)) &&
+    (!dsub || t.dsub === dsub) && (!tsub || t.tsub === tsub));
+  const info = $("filterInfo");
+  info.classList.toggle("hidden", !(q || dsub || tsub));
+  info.textContent = `Menampilkan ${tokoFiltered.length} dari ${tokoData.length} toko`;
+  renderTokoTable();
+}
+function resetFilterToko() { $("searchToko").value = ""; $("filterDsub").value = ""; $("filterTsub").value = ""; filterToko(); }
+function renderTokoTable() {
+  const tb = $("tokoTable");
+  if (!tokoFiltered.length) { tb.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-gray-400">Tidak ada data</td></tr>'; return; }
+  tb.innerHTML = tokoFiltered.map((t, i) => `
+    <tr class="border-t">
+      <td class="px-4 py-3 font-medium">${esc(t.nama)}</td>
+      <td class="px-4 py-3 text-gray-500">${esc(t.kode)}</td>
+      <td class="px-4 py-3 text-gray-400 text-xs">${esc(t.dsub || "-")} / ${esc(t.tsub || "-")}</td>
+      <td class="px-4 py-3 text-gray-500">${esc(t.pic)}</td>
+      <td class="px-4 py-3 text-gray-400 text-xs">${esc(t.wa)}</td>
+      <td class="px-4 py-3 text-right font-bold text-blue-600">${fmt(t.poin)}</td>
+      <td class="px-4 py-3 text-center whitespace-nowrap">
+        <button onclick="openEditToko(${i})" class="text-blue-600 hover:text-blue-800 mr-2 text-xs font-medium">Edit</button>
+        <button onclick="hapusToko(${i})" class="text-red-500 hover:text-red-700 text-xs font-medium">Hapus</button>
+      </td>
+    </tr>`).join("");
+}
+function isiFormToko(t) {
+  $("tokoWaLama").value = t ? t.wa : "";
+  $("tokoWa").value = t ? t.wa : ""; $("tokoKode").value = t ? t.kode : "";
+  $("tokoNama").value = t ? t.nama : ""; $("tokoPic").value = t ? t.pic : "";
+  $("tokoDsub").value = t ? t.dsub : ""; $("tokoTsub").value = t ? t.tsub : "";
+  $("tokoPoin").value = t ? t.poin : 0;
+  $("tokoPoinWrap").classList.toggle("hidden", !t);
+  $("modalTokoJudul").textContent = t ? "Edit Toko" : "Tambah Toko Baru";
+}
+function openTambahToko() { isiFormToko(null); openModal("modalToko"); }
+function openEditToko(i) { isiFormToko(tokoFiltered[i]); openModal("modalToko"); }
+async function submitToko() {
+  const waLama = $("tokoWaLama").value;
+  const body = {
+    wa: $("tokoWa").value.trim(), newWa: $("tokoWa").value.trim(),
+    kode: $("tokoKode").value.trim(), nama: $("tokoNama").value.trim(), pic: $("tokoPic").value.trim(),
+    dsub: $("tokoDsub").value.trim(), tsub: $("tokoTsub").value.trim(), poin: parseInt($("tokoPoin").value) || 0,
+  };
+  if (!body.wa || !body.kode || !body.nama || !body.pic) return showToast("WA, kode, nama, dan PIC wajib diisi", false);
+  const ok = await aksi(() => waLama ? api("PUT", "/api/toko/" + encodeURIComponent(waLama), body) : api("POST", "/api/toko", body),
+    waLama ? "Toko berhasil diupdate!" : "Toko berhasil ditambahkan!");
+  if (ok) { closeModal("modalToko"); loadToko(); }
+}
+function hapusToko(i) {
+  const t = tokoFiltered[i];
+  konfirmasi({ judul: "Hapus toko?", pesan: `Toko "${t.nama}" (${t.kode}) beserta poinnya akan dihapus dari spreadsheet.`, tombol: "Hapus", ikon: "🗑️" }, async () => {
+    if (await aksi(() => api("DELETE", "/api/toko/" + encodeURIComponent(t.wa)), "Toko dihapus")) loadToko();
+  });
+}
+
+// ============================================================ POIN
+let poinSearchTimeout;
+function searchTokoForPoin() {
+  clearTimeout(poinSearchTimeout);
+  poinSearchTimeout = setTimeout(async () => {
+    const q = $("poinSearchWa").value.toLowerCase().trim(), el = $("poinSearchResult");
+    if (!q) { el.classList.add("hidden"); return; }
+    if (!tokoData.length) tokoData = await api("GET", "/api/toko").catch(() => []);
+    const hasil = tokoData.filter(t => t.nama.toLowerCase().includes(q) || t.kode.toLowerCase().includes(q) || t.wa.includes(q)).slice(0, 6);
+    window._poinHasil = hasil;
+    el.innerHTML = hasil.length ? hasil.map((t, i) => `
+      <div onclick="pilihTokoForPoin(${i})" class="p-3 text-sm hover:bg-blue-50 cursor-pointer border-b last:border-0">
+        <div class="font-medium">${esc(t.nama)} <span class="text-gray-400 text-xs">(${esc(t.kode)})</span></div>
+        <div class="text-gray-400 text-xs">${esc(t.wa)} — ${fmt(t.poin)} poin</div>
+      </div>`).join("") : '<div class="p-3 text-sm text-gray-400">Tidak ditemukan</div>';
+    el.classList.remove("hidden");
+  }, 250);
+}
+function pilihTokoForPoin(i) {
+  const t = window._poinHasil[i];
+  $("poinWaTarget").value = t.wa; $("poinSearchWa").value = t.nama;
+  $("poinSearchResult").classList.add("hidden");
+  $("poinTokoNama").textContent = `${t.nama} (${t.kode})`;
+  $("poinTokoSaat").textContent = fmt(t.poin) + " poin";
+  $("poinTokoInfo").classList.remove("hidden");
+}
+async function submitPoin(jenis) {
+  const wa = $("poinWaTarget").value, jumlah = parseInt($("poinJumlah").value);
+  if (!wa) return showToast("Pilih toko dulu", false);
+  if (!jumlah || jumlah <= 0) return showToast("Masukkan jumlah poin yang valid", false);
+  const r = await aksi(() => api("POST", "/api/poin", { wa, jumlah, aksi: jenis }));
+  if (!r) return;
+  showToast(`Poin berhasil di${jenis}! Sekarang: ${fmt(r.poinBaru)} poin`);
+  $("poinTokoSaat").textContent = fmt(r.poinBaru) + " poin";
+  $("poinJumlah").value = "";
+  tokoData = [];
+}
+
+// ============================================================ HADIAH
+async function loadHadiah() {
+  $("hadiahGrid").innerHTML = '<div class="card p-6 text-center text-gray-400 col-span-full">Memuat...</div>';
+  try { hadiahData = await api("GET", "/api/hadiah"); }
+  catch (e) { $("hadiahGrid").innerHTML = `<div class="card p-6 text-center text-red-500 col-span-full">${esc(e.message)}</div>`; return; }
+  if (!hadiahData.length) { $("hadiahGrid").innerHTML = '<div class="card p-6 text-center text-gray-400 col-span-full">Belum ada hadiah</div>'; return; }
+  $("hadiahGrid").innerHTML = hadiahData.map((h, i) => `
+    <div class="card overflow-hidden">
+      ${/^https?:\/\//.test(h.gambar) ? `<img src="${esc(h.gambar)}" class="w-full h-40 object-cover" onerror="this.style.display='none'">` : '<div class="w-full h-40 bg-gray-100 flex items-center justify-center text-4xl">🎁</div>'}
+      <div class="p-4">
+        <div class="flex items-start justify-between gap-2">
+          <div class="font-semibold text-gray-800">${esc(h.nama)}</div>
+          <span class="text-xs px-2 py-0.5 rounded-full ${h.tipe === "hiburan" ? "bg-pink-100 text-pink-700" : "bg-indigo-100 text-indigo-700"}">${h.tipe}</span>
+        </div>
+        <div class="text-blue-600 font-bold mt-1">${fmt(h.poin)} poin</div>
+        <div class="text-xs mt-1 ${h.stok === null ? "text-gray-400" : h.stok === 0 ? "text-red-500 font-semibold" : "text-green-600"}">📦 Stok: ${h.stok === null ? "∞ Tidak terbatas" : h.stok === 0 ? "Habis" : h.stok}</div>
+        <div class="flex gap-2 mt-3">
+          <button onclick="openHadiah(${i})" class="flex-1 text-xs border border-blue-400 text-blue-600 py-1.5 rounded-lg hover:bg-blue-50">Edit</button>
+          <button onclick="hapusHadiah(${i})" class="flex-1 text-xs border border-red-400 text-red-500 py-1.5 rounded-lg hover:bg-red-50">Hapus</button>
+        </div>
+      </div>
+    </div>`).join("");
+}
+function openHadiah(i) {
+  const h = i === null ? null : hadiahData[i];
+  $("modalHadiahJudul").textContent = h ? "Edit Hadiah" : "Tambah Hadiah";
+  $("hadiahIndex").value = h ? h.index : "";
+  $("hadiahNama").value = h ? h.nama : ""; $("hadiahPoin").value = h ? h.poin : "";
+  $("hadiahTipe").value = h ? h.tipe : "utama"; $("hadiahGambar").value = h ? h.gambar : "";
+  $("hadiahStok").value = h && h.stok !== null ? h.stok : "";
+  previewImg("hadiahGambar", "hadiahPreview");
+  openModal("modalHadiah");
+}
+async function submitHadiah() {
+  const index = $("hadiahIndex").value;
+  const stokRaw = $("hadiahStok").value.trim();
+  const body = { nama: $("hadiahNama").value.trim(), poin: parseInt($("hadiahPoin").value), tipe: $("hadiahTipe").value,
+    gambar: $("hadiahGambar").value.trim(), stok: stokRaw === "" ? null : parseInt(stokRaw) };
+  if (!body.nama || !body.poin) return showToast("Nama dan poin wajib diisi", false);
+  const ok = await aksi(() => index ? api("PUT", "/api/hadiah/" + index, body) : api("POST", "/api/hadiah", body), "Hadiah tersimpan!");
+  if (ok) { closeModal("modalHadiah"); loadHadiah(); }
+}
+function hapusHadiah(i) {
+  const h = hadiahData[i];
+  konfirmasi({ judul: "Hapus hadiah?", pesan: `"${h.nama}" akan dihapus dari daftar hadiah.`, tombol: "Hapus", ikon: "🗑️" }, async () => {
+    if (await aksi(() => api("DELETE", "/api/hadiah/" + h.index), "Hadiah dihapus")) loadHadiah();
+  });
+}
+
+// ============================================================ INFO PROGRAM
+async function loadInfo() {
+  $("infoGrid").innerHTML = '<div class="card p-6 text-center text-gray-400 col-span-full">Memuat...</div>';
+  try { infoData = await api("GET", "/api/info"); }
+  catch (e) { $("infoGrid").innerHTML = `<div class="card p-6 text-center text-red-500 col-span-full">${esc(e.message)}</div>`; return; }
+  if (!infoData.length) { $("infoGrid").innerHTML = '<div class="card p-6 text-center text-gray-400 col-span-full">Belum ada info program. Toko akan dapat pesan "Belum ada info program saat ini".</div>'; return; }
+  $("infoGrid").innerHTML = infoData.map((x, i) => `
+    <div class="card p-4">
+      ${/^https?:\/\//.test(x.gambar) ? `<img src="${esc(x.gambar)}" class="w-full h-36 object-cover rounded-lg mb-3" onerror="this.style.display='none'">` : ""}
+      <div class="wa-bubble">${waFormat(`📢 *${x.judul}*\n\n${x.deskripsi}`)}</div>
+      <div class="flex gap-2 mt-3">
+        <button onclick="openInfo(${i})" class="flex-1 text-xs border border-blue-400 text-blue-600 py-1.5 rounded-lg hover:bg-blue-50">Edit</button>
+        <button onclick="hapusInfo(${i})" class="flex-1 text-xs border border-red-400 text-red-500 py-1.5 rounded-lg hover:bg-red-50">Hapus</button>
+      </div>
+    </div>`).join("");
+}
+function previewInfo() { $("infoPreview").innerHTML = waFormat(`📢 *${$("infoJudulInp").value}*\n\n${$("infoDeskripsi").value}`); }
+function openInfo(i) {
+  const x = i === null ? null : infoData[i];
+  $("modalInfoJudul").textContent = x ? "Edit Info Program" : "Tambah Info Program";
+  $("infoIndex").value = x ? x.index : "";
+  $("infoJudulInp").value = x ? x.judul : ""; $("infoDeskripsi").value = x ? x.deskripsi : ""; $("infoGambar").value = x ? x.gambar : "";
+  previewInfo(); openModal("modalInfo");
+}
+async function submitInfo() {
+  const index = $("infoIndex").value;
+  const body = { judul: $("infoJudulInp").value.trim(), deskripsi: $("infoDeskripsi").value.trim(), gambar: $("infoGambar").value.trim() };
+  if (!body.judul || !body.deskripsi) return showToast("Judul dan isi wajib diisi", false);
+  const ok = await aksi(() => index ? api("PUT", "/api/info/" + index, body) : api("POST", "/api/info", body), "Info program tersimpan!");
+  if (ok) { closeModal("modalInfo"); loadInfo(); }
+}
+function hapusInfo(i) {
+  const x = infoData[i];
+  konfirmasi({ judul: "Hapus info?", pesan: `"${x.judul}" akan dihapus.`, tombol: "Hapus", ikon: "🗑️" }, async () => {
+    if (await aksi(() => api("DELETE", "/api/info/" + x.index), "Info dihapus")) loadInfo();
+  });
+}
+
+// ============================================================ LOG
+async function loadLog() {
+  const tb = $("logTable");
+  tb.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-400">Memuat...</td></tr>';
+  let data;
+  try { data = await api("GET", "/api/log"); }
+  catch (e) { tb.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-red-500">${esc(e.message)}</td></tr>`; return; }
+  if (!data.length) { tb.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-400">Belum ada log</td></tr>'; return; }
+  const warna = { KLAIM: "bg-purple-100 text-purple-700", TAMBAH: "bg-green-100 text-green-700", KURANGI: "bg-red-100 text-red-700", DAFTAR: "bg-blue-100 text-blue-700" };
+  tb.innerHTML = data.map(l => `
+    <tr class="border-t">
+      <td class="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">${esc(l.tanggal)}</td>
+      <td class="px-4 py-3"><div class="font-medium">${esc(l.nama)}</div><div class="text-gray-400 text-xs">${esc(l.kode)}</div></td>
+      <td class="px-4 py-3"><span class="px-2 py-1 rounded-full text-xs font-medium ${warna[l.aksi] || "bg-gray-100 text-gray-600"}">${esc(l.aksi)}</span></td>
+      <td class="px-4 py-3 text-gray-500">${esc(l.keterangan)}</td>
+      <td class="px-4 py-3 text-right font-medium">${fmt(l.poin)}</td>
+      <td class="px-4 py-3 text-right text-blue-600 font-bold">${fmt(l.sisa)}</td>
+    </tr>`).join("");
+}
+
+// ============================================================ TIM
+const ROLE_INFO = {
+  admin:   { judul: "👮 Admin", desc: "Bisa kelola semua lewat chat WA: daftar toko, tambah/kurangi poin, hadiah, dan tim.", wilayah: null },
+  manajer: { judul: "🧑‍💼 Manajer", desc: "Lihat data semua wilayah: CEK toko, LIST per DSUB, RINGKASAN global.", wilayah: null },
+  spv:     { judul: "🧭 Supervisor", desc: "Lihat toko & performa RE di DSUB-nya: CEK, LIST, LIST RE, RINGKASAN.", wilayah: "dsub" },
+  re:      { judul: "🚶 RE (Sales)", desc: "Lihat toko di TSUB-nya: CEK, LIST, RINGKASAN. Dapat notif WA tiap ada klaim di wilayahnya.", wilayah: "tsub" },
+};
+async function loadTim() {
+  try { timData = await api("GET", "/api/tim"); }
+  catch (e) { $("timWrap").innerHTML = `<div class="card p-6 text-center text-red-500">${esc(e.message)}</div>`; return; }
+  if (!tokoData.length) api("GET", "/api/toko").then(d => { tokoData = d; }).catch(() => {});
+  $("timWrap").innerHTML = Object.entries(ROLE_INFO).map(([role, info]) => {
+    const list = timData[role] || [];
+    const baris = list.map((m, i) => `
+      <tr class="border-t">
+        <td class="px-4 py-2 text-gray-700">${esc(m.wa)}</td>
+        ${role !== "admin" ? `<td class="px-4 py-2 font-medium">${esc(m.nama)}</td>` : ""}
+        ${info.wilayah ? `<td class="px-4 py-2 text-gray-500">${esc((m[info.wilayah] || []).join(", "))}</td>` : ""}
+        <td class="px-4 py-2 text-right whitespace-nowrap">
+          ${role !== "admin" ? `<button onclick="openTim('${role}', ${i})" class="text-blue-600 text-xs font-medium mr-2">Edit</button>` : ""}
+          <button onclick="hapusTim('${role}', ${i})" class="text-red-500 text-xs font-medium">Hapus</button>
+        </td>
+      </tr>`).join("");
+    const superRow = role === "admin" ? `<tr class="border-t bg-amber-50"><td class="px-4 py-2">${esc(timData.superAdmin || "— belum diisi —")}</td>
+      <td class="px-4 py-2 text-right text-xs text-amber-700">👑 Super admin · <button onclick="showTab('setting')" class="underline">ubah di Pengaturan</button></td></tr>` : "";
+    return `
+      <div class="card overflow-hidden">
+        <div class="p-4 flex items-start justify-between gap-3">
+          <div><div class="font-semibold text-gray-800">${info.judul} <span class="text-gray-400 font-normal text-sm">(${list.length})</span></div>
+          <div class="text-sm text-gray-500">${info.desc}</div></div>
+          <button onclick="openTim('${role}', null)" class="btn btn-pri">+ Tambah</button>
+        </div>
+        <div class="overflow-x-auto"><table class="w-full text-sm">
+          <thead class="bg-gray-50 text-gray-600 text-left"><tr>
+            <th class="px-4 py-2">Nomor WA</th>${role !== "admin" ? '<th class="px-4 py-2">Nama</th>' : ""}
+            ${info.wilayah ? `<th class="px-4 py-2">${info.wilayah.toUpperCase()}</th>` : ""}<th></th></tr></thead>
+          <tbody>${superRow}${baris || (role === "admin" ? "" : '<tr><td colspan="4" class="px-4 py-4 text-center text-gray-400">Belum ada</td></tr>')}</tbody>
+        </table></div>
+      </div>`;
+  }).join("");
+}
+function openTim(role, i) {
+  const m = i === null ? null : timData[role][i];
+  const info = ROLE_INFO[role];
+  $("modalTimJudul").textContent = (m ? "Edit " : "Tambah ") + info.judul.replace(/^\S+\s/, "");
+  $("timRole").value = role; $("timWaLama").value = m ? m.wa : "";
+  $("timWa").value = m ? m.wa : ""; $("timNama").value = m ? m.nama : "";
+  $("timNamaWrap").classList.toggle("hidden", role === "admin");
+  $("timWilayahWrap").classList.toggle("hidden", !info.wilayah);
+  if (info.wilayah) {
+    const W = info.wilayah.toUpperCase();
+    $("timWilayahLbl").innerHTML = `${W} <span class="text-red-500">*</span>`;
+    $("timWilayah").value = m ? (m[info.wilayah] || []).join(", ") : "";
+    $("timWilayah").placeholder = info.wilayah === "tsub" ? "contoh: 033, 034" : "contoh: 004";
+    const ada = uniq(tokoData.map(t => String(t[info.wilayah] || "").replace(/^(TSUB|DSUB)/i, "")));
+    $("timWilayahHint").textContent = `Lebih dari 1 pisahkan dengan koma.` + (ada.length ? ` ${W} yang ada di data toko: ${ada.join(", ")}` : "");
+  }
+  openModal("modalTim");
+}
+async function submitTim() {
+  const role = $("timRole").value, waLama = $("timWaLama").value;
+  const body = { wa: $("timWa").value.trim(), nama: $("timNama").value.trim(), wilayah: $("timWilayah").value };
+  const ok = await aksi(() => waLama ? api("PUT", `/api/tim/${role}/${waLama}`, body) : api("POST", `/api/tim/${role}`, body), "Tersimpan!");
+  if (ok) { closeModal("modalTim"); loadTim(); }
+}
+function hapusTim(role, i) {
+  const m = timData[role][i];
+  konfirmasi({ judul: "Hapus dari tim?", pesan: `${m.nama || m.wa} tidak akan dapat menu ${ROLE_INFO[role].judul.replace(/^\S+\s/, "")} lagi.`, tombol: "Hapus", ikon: "🗑️" }, async () => {
+    if (await aksi(() => api("DELETE", `/api/tim/${role}/${m.wa}`), "Dihapus")) loadTim();
+  });
+}
+
+// ============================================================ PESAN BOT
+const CONTOH = { toko: "Toko Maju Jaya", pic: "Bu Siti", poin: "12.500", kode: "SUB12345", hadiah: "Magic Com", poin_hadiah: "10.000", sisa_poin: "2.500" };
+function isiContoh(t) { return t.replace(/\{(\w+)\}/g, (m, k) => CONTOH[k] ?? m); }
+async function loadPesan() {
+  try { settings = await api("GET", "/api/settings"); }
+  catch (e) { $("pesanWrap").innerHTML = `<div class="card p-6 text-red-500">${esc(e.message)}</div>`; return; }
+  $("pesanWrap").innerHTML = settings.pesanMeta.map(m => `
+    <div class="card p-5">
+      <div class="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+        <div class="font-semibold text-gray-800">${esc(m.judul)}</div>
+        <div class="text-xs text-gray-500">Dikirim saat: ${esc(m.kapan)}</div>
+      </div>
+      <div class="grid md:grid-cols-2 gap-4">
+        <div>
+          <textarea id="psn_${m.key}" rows="8" class="inp font-mono !text-xs" oninput="previewPesan('${m.key}')">${esc(settings.pesan[m.key] || "")}</textarea>
+          <div class="mt-1">${m.isian.length ? m.isian.map(x => `<span class="chip" onclick="sisip('${m.key}','{${x}}')">{${x}}</span>`).join("") : '<span class="hint">Pesan ini tidak punya kata isian.</span>'}</div>
+          <div class="flex gap-2 mt-2">
+            <button onclick="simpanPesan('${m.key}')" class="btn btn-pri">Simpan</button>
+            <button onclick="resetPesan('${m.key}')" class="btn btn-sec">Kembalikan ke awal</button>
+          </div>
+        </div>
+        <div><div class="text-xs text-gray-500 mb-1">Contoh tampilan:</div><div id="prev_${m.key}" class="wa-bubble"></div></div>
+      </div>
+    </div>`).join("");
+  settings.pesanMeta.forEach(m => previewPesan(m.key));
+}
+function previewPesan(key) { $("prev_" + key).innerHTML = waFormat(isiContoh($("psn_" + key).value)); }
+function sisip(key, teks) {
+  const ta = $("psn_" + key), s = ta.selectionStart ?? ta.value.length, e = ta.selectionEnd ?? s;
+  ta.value = ta.value.slice(0, s) + teks + ta.value.slice(e);
+  ta.focus(); ta.selectionStart = ta.selectionEnd = s + teks.length;
+  previewPesan(key);
+}
+async function simpanPesan(key) {
+  const teks = $("psn_" + key).value;
+  const r = await aksi(() => api("PUT", "/api/settings", { pesan: { [key]: teks } }), "Pesan tersimpan, langsung dipakai bot!");
+  if (r) settings = r;
+}
+function resetPesan(key) {
+  konfirmasi({ judul: "Kembalikan ke awal?", pesan: "Teks pesan ini akan diganti dengan teks bawaan.", tombol: "Kembalikan", ikon: "↩️" }, async () => {
+    $("psn_" + key).value = settings.pesanDefault[key];
+    previewPesan(key);
+    await simpanPesan(key);
+  });
+}
+
+// ============================================================ KONEKSI WA
+const STATE_LABEL = {
+  ready:         { ikon: "🟢", teks: "Tersambung", warna: "text-green-700" },
+  qr:            { ikon: "🟡", teks: "Menunggu scan QR", warna: "text-amber-700" },
+  loading:       { ikon: "🟡", teks: "Sedang memuat WhatsApp...", warna: "text-amber-700" },
+  authenticated: { ikon: "🟡", teks: "Login berhasil, sedang menyiapkan...", warna: "text-amber-700" },
+  starting:      { ikon: "🟡", teks: "Bot sedang dinyalakan...", warna: "text-amber-700" },
+  disconnected:  { ikon: "🔴", teks: "Terputus dari WhatsApp", warna: "text-red-600" },
+  auth_failure:  { ikon: "🔴", teks: "Login WhatsApp gagal", warna: "text-red-600" },
+  mati:          { ikon: "⚫", teks: "Bot tidak jalan", warna: "text-gray-700" },
+};
+async function loadWa() {
+  await refreshWa();
+  if (!settings) settings = await api("GET", "/api/settings").catch(() => null);
+  tampilGrupAktif();
+  clearInterval(waPoll);
+  waPoll = setInterval(refreshWa, 4000);
+}
+async function refreshWa() {
+  let s;
+  try { s = await api("GET", "/api/wa/status"); } catch { return; }
+  const L = STATE_LABEL[s.state] || STATE_LABEL.mati;
+  let detail = "";
+  if (s.state === "ready") detail = `Nomor bot: <b>${esc(s.nomor || "-")}</b>${s.nama ? ` (${esc(s.nama)})` : ""}`;
+  else if (s.state === "mati") detail = "Proses bot tidak jalan. Coba tekan Restart Bot. Kalau tetap mati, cek di VPS dengan <code>pm2 list</code>.";
+  else if (s.state === "disconnected" || s.state === "auth_failure") detail = `Alasan: ${esc(s.alasan || "-")}. Tekan <b>Restart Bot</b> untuk menyambung ulang.`;
+  else if (s.state === "loading") detail = esc(s.alasan || "");
+  $("waStatusBox").innerHTML = `
+    <div class="text-lg font-semibold ${L.warna}">${L.ikon} ${L.teks}</div>
+    <div class="mt-1 text-gray-600">${detail}</div>
+    ${s.lastSeen ? `<div class="hint">Pesan terakhir diterima: ${esc(s.lastSeen)}</div>` : ""}`;
+  if (s.adaQr) {
+    try { const q = await api("GET", "/api/wa/qr"); $("waQrImg").src = q.dataUrl; $("waQrBox").classList.remove("hidden"); } catch {}
+  } else $("waQrBox").classList.add("hidden");
+  setDot(s.state);
+}
+function setDot(state) {
+  const map = { ready: ["bg-green-500", "Bot Online"], mati: ["bg-red-500", "Bot Mati"], disconnected: ["bg-red-500", "Bot Terputus"], auth_failure: ["bg-red-500", "Bot Terputus"], qr: ["bg-amber-500", "Perlu Scan QR"] };
+  const [cls, label] = map[state] || ["bg-amber-500", "Bot Memuat"];
+  $("statusDot").className = `text-xs px-2 py-1 rounded-full text-white ${cls}`;
+  $("statusDot").textContent = label;
+}
+async function checkBotStatus() { try { setDot((await api("GET", "/api/wa/status")).state); } catch {} }
+function waRestart() {
+  konfirmasi({ judul: "Restart bot?", pesan: "Bot berhenti sebentar (±30 detik) lalu nyala lagi.", tombol: "Restart", ikon: "🔄" }, async () => {
+    await aksi(() => api("POST", "/api/wa/restart"), "Bot sedang direstart...");
+  });
+}
+function waLogout() {
+  konfirmasi({ judul: "Ganti nomor bot?", pesan: "WhatsApp nomor bot sekarang akan diputus. Setelah itu muncul QR baru untuk discan dari HP nomor yang baru.", tombol: "Ya, putuskan", ikon: "📵" }, async () => {
+    await aksi(() => api("POST", "/api/wa/logout"), "Nomor diputus. Tunggu QR baru muncul...");
+  });
+}
+function tampilGrupAktif() {
+  const id = settings?.notifGroupId;
+  $("grupAktif").textContent = id ? (window._grupNama?.[id] || settings.notifGroupNama || id) : "— belum dipilih —";
+}
+async function loadGroups() {
+  $("grupList").innerHTML = '<div class="text-sm text-gray-400">Mengambil daftar grup... (bisa sampai 30 detik)</div>';
+  let list;
+  try { list = await api("GET", "/api/wa/groups"); }
+  catch (e) { $("grupList").innerHTML = `<div class="text-sm text-red-500">${esc(e.message)}</div>`; return; }
+  window._grupNama = Object.fromEntries(list.map(g => [g.id, g.nama]));
+  window._grupList = list;
+  if (!list.length) { $("grupList").innerHTML = '<div class="text-sm text-gray-500">Nomor bot belum masuk grup mana pun. Masukkan nomor bot ke grup dulu, lalu klik lagi.</div>'; return; }
+  $("grupList").innerHTML = list.map((g, i) => `
+    <label class="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 cursor-pointer border">
+      <input type="radio" name="grup" ${g.id === settings?.notifGroupId ? "checked" : ""} onchange="pilihGrup(${i})">
+      <span class="text-sm flex-1">${esc(g.nama)}</span>
+      ${g.anggota ? `<span class="text-xs text-gray-400">${g.anggota} anggota</span>` : ""}
+    </label>`).join("");
+  tampilGrupAktif();
+}
+async function pilihGrup(i) {
+  const g = window._grupList[i];
+  const r = await aksi(() => api("PUT", "/api/settings", { notifGroupId: g.id, notifGroupNama: g.nama }), `Notifikasi akan dikirim ke "${g.nama}"`);
+  if (r) { settings = r; tampilGrupAktif(); }
+}
+async function tesNotif() { await aksi(() => api("POST", "/api/wa/tes-notif", {}), "Pesan tes terkirim, cek grupnya!"); }
+function hapusGrup() {
+  konfirmasi({ judul: "Matikan notifikasi grup?", pesan: "Laporan klaim/tambah poin tidak akan dikirim ke grup mana pun.", tombol: "Matikan" }, async () => {
+    const r = await aksi(() => api("PUT", "/api/settings", { notifGroupId: "" }), "Notifikasi grup dimatikan");
+    if (r) { settings = r; tampilGrupAktif(); document.querySelectorAll('input[name=grup]').forEach(x => x.checked = false); }
+  });
+}
+
+// ============================================================ PENGATURAN
+const FITUR_INFO = {
+  cekPoin:   { judul: "Cek poin", desc: "Kalau dimatikan, toko yang cek poin dapat pesan \"poin sedang dihitung\". Pakai saat poin sedang direkap." },
+  klaim:     { judul: "Klaim hadiah", desc: "Kalau dimatikan, toko tidak bisa klaim hadiah (misalnya periode sudah tutup)." },
+  notifKeRE: { judul: "Notif klaim ke RE", desc: "Kirim WA ke RE pemilik TSUB setiap ada toko di wilayahnya yang klaim hadiah." },
+};
+async function loadSetting() {
+  try { settings = await api("GET", "/api/settings"); } catch (e) { return showToast(e.message, false); }
+  const s = settings;
+  $("saEmail").textContent = s.serviceAccountEmail || "(credentials.json belum ada di VPS)";
+  $("setSheet").value = s.spreadsheetId ? `https://docs.google.com/spreadsheets/d/${s.spreadsheetId}/edit` : "";
+  $("setSuperAdmin").value = s.superAdmin || "";
+  $("fiturList").innerHTML = Object.entries(FITUR_INFO).map(([k, f]) => `
+    <div class="flex items-center justify-between gap-4 py-3">
+      <div><div class="font-medium text-gray-800 text-sm">${f.judul}</div><div class="text-xs text-gray-500">${esc(f.desc)}</div></div>
+      <label class="switch"><input type="checkbox" ${s.fitur[k] ? "checked" : ""} onchange="simpanFitur('${k}', this)"><span class="slider"></span></label>
+    </div>`).join("");
+  $("aiAktif").checked = s.ai.aktif;
+  $("aiTester").value = (s.ai.tester || []).join("\n");
+  $("aiModel").value = s.ai.model || "";
+  $("aiKey").value = "";
+  $("aiKey").placeholder = s.ai.apiKeyTersimpan ? "•••••••• (tersimpan)" : "Tempel API key di sini";
+  $("aiKeyInfo").textContent = s.ai.apiKeyTersimpan ? "API key sudah tersimpan. Isi kolom ini hanya kalau mau mengganti." : "Belum ada API key.";
+  katRows = (s.kategori || []).map(k => ({ ...k }));
+  renderKat();
+  cekSheet();
+}
+async function cekSheet() {
+  const box = $("sheetStatus");
+  box.innerHTML = '<span class="text-gray-400">Mengecek spreadsheet...</span>';
+  let r; try { r = await api("GET", "/api/sheet/cek"); } catch (e) { box.innerHTML = `<span class="text-red-500">${esc(e.message)}</span>`; return; }
+  if (r.error) { box.innerHTML = `<div class="text-red-600">❌ ${esc(r.error)}</div>`; return; }
+  box.innerHTML = `<div class="text-green-700">✅ Tersambung ke <b>${esc(r.judul)}</b> · <a href="${esc(r.url)}" target="_blank" class="text-blue-600 underline">buka spreadsheet</a></div>` +
+    (r.kurang.length ? `<div class="mt-2 p-3 bg-amber-50 rounded-lg text-amber-800">Tab yang belum ada: <b>${r.kurang.map(esc).join(", ")}</b>
+      <button onclick="siapkanSheet()" class="btn btn-pri ml-2 !py-1">Buat otomatis</button></div>` : `<div class="hint">Semua tab yang dibutuhkan sudah ada.</div>`);
+}
+async function simpanSheet() {
+  const v = $("setSheet").value.trim();
+  if (!v) return showToast("Tempel link spreadsheet dulu", false);
+  const r = await aksi(() => api("PUT", "/api/settings", { spreadsheetId: v }), "Spreadsheet disimpan");
+  if (r) { settings = r; tokoData = []; cekSheet(); }
+}
+async function siapkanSheet() {
+  const r = await aksi(() => api("POST", "/api/sheet/siapkan"));
+  if (r) { showToast(r.dibuat.length ? `Tab dibuat: ${r.dibuat.join(", ")}` : "Semua tab sudah ada"); cekSheet(); }
+}
+async function simpanFitur(k, el) {
+  const r = await aksi(() => api("PUT", "/api/settings", { fitur: { [k]: el.checked } }), `${FITUR_INFO[k].judul} ${el.checked ? "diaktifkan" : "dimatikan"}`);
+  if (!r) el.checked = !el.checked; else settings = r;
+}
+async function simpanSuperAdmin() {
+  const r = await aksi(() => api("PUT", "/api/settings", { superAdmin: $("setSuperAdmin").value.trim() }), "Super admin disimpan");
+  if (r) { settings = r; $("setSuperAdmin").value = r.superAdmin; }
+}
+async function simpanAI() {
+  const body = { ai: { aktif: $("aiAktif").checked, tester: $("aiTester").value, model: $("aiModel").value.trim() || "gemini-2.5-flash" } };
+  if ($("aiKey").value.trim()) body.ai.apiKey = $("aiKey").value.trim();
+  if (body.ai.aktif && !$("aiKey").value.trim() && !settings.ai.apiKeyTersimpan) showToast("Jangan lupa isi API key, AI belum bisa jalan tanpa itu", false);
+  const r = await aksi(() => api("PUT", "/api/settings", body), "Pengaturan AI disimpan");
+  if (r) { settings = r; loadSetting(); }
+}
+function hapusKeyAI() {
+  konfirmasi({ judul: "Hapus API key?", pesan: "Jawaban AI akan berhenti sampai API key baru diisi.", tombol: "Hapus" }, async () => {
+    const r = await aksi(() => api("PUT", "/api/settings", { ai: { hapusKey: true } }), "API key dihapus");
+    if (r) { settings = r; loadSetting(); }
+  });
+}
+let katRows = [];
+function renderKat() {
+  $("katList").innerHTML = katRows.map((k, i) => `
+    <div class="flex gap-2 items-center">
+      <input class="inp !mt-0 !w-32 uppercase" value="${esc(k.kode)}" placeholder="KODE" oninput="katRows[${i}].kode=this.value">
+      <input class="inp !mt-0" value="${esc(k.label)}" placeholder="Saran aksi, contoh: beli Rokok V1" oninput="katRows[${i}].label=this.value">
+      <button onclick="katRows.splice(${i},1);renderKat()" class="text-red-500 text-sm px-2">✕</button>
+    </div>`).join("") || '<div class="text-sm text-gray-400">Belum ada kategori.</div>';
+}
+function tambahKat() { katRows.push({ kode: "", label: "" }); renderKat(); }
+async function simpanKat() {
+  const r = await aksi(() => api("PUT", "/api/settings", { kategori: katRows }), "Kategori disimpan");
+  if (r) { settings = r; katRows = r.kategori.map(k => ({ ...k })); renderKat(); }
+}
+async function gantiPassword() {
+  const lama = $("pwLama").value, baru = $("pwBaru").value;
+  if (baru !== $("pwUlang").value) return showToast("Ulangi password baru tidak sama", false);
+  if (await aksi(() => api("POST", "/api/password", { lama, baru }), "Password diganti!")) ["pwLama", "pwBaru", "pwUlang"].forEach(id => $(id).value = "");
+}
+
+// ============================================================ LOGIN
+function pindahKeLogin() {
+  sessionStorage.removeItem("adminToken"); sessionToken = "";
+  clearInterval(waPoll);
+  $("loginOverlay").classList.remove("hidden");
+}
+async function doLogin() {
+  const err = $("loginError"); err.classList.add("hidden");
+  try {
+    const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: $("loginPassword").value }) });
+    const res = await r.json().catch(() => ({}));
+    if (!r.ok) { err.textContent = res.error || "Password salah"; err.classList.remove("hidden"); return; }
+    sessionToken = res.token; sessionStorage.setItem("adminToken", sessionToken);
+    $("loginPassword").value = "";
+    $("loginOverlay").classList.add("hidden");
+    mulai();
+  } catch { err.textContent = "Tidak bisa terhubung ke server"; err.classList.remove("hidden"); }
+}
+async function logout() {
+  try { await fetch("/api/logout", { method: "POST", headers: { "Authorization": sessionToken } }); } catch {}
+  pindahKeLogin();
+}
+function mulai() {
+  const awal = location.hash.slice(1);
+  showTab(loaders[awal] ? awal : "dashboard");
+  checkBotStatus();
+  clearInterval(mulai._t); mulai._t = setInterval(checkBotStatus, 30000);
+}
+if (sessionToken) { $("loginOverlay").classList.add("hidden"); mulai(); }
+</script>
+</body>
+</html>
