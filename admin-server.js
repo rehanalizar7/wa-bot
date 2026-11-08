@@ -661,7 +661,7 @@ app.get("/api/toko/template", requireAuth, async (req, res) => {
       ["Template upload — Data Toko"],
       [],
       ["1. Satu baris per toko. KODE_TOKO wajib diisi dan jadi kunci pencocokan."],
-      ["2. Kode yang sudah ada → datanya diperbarui. Kode baru → toko ditambahkan (wajib isi NAMA_TOKO, PIC_TOKO, WA)."],
+      ["2. Kode yang sudah ada → datanya diperbarui. Kode baru → toko ditambahkan. Cukup isi KODE_TOKO; kolom lain (mis. WA) boleh kosong dan dilengkapi nanti lewat Edit di panel."],
       ["3. Sel yang dikosongkan tidak mengubah data lama. Urutan kolom boleh diubah, nama header jangan."],
       ["4. WA boleh ditulis 08xx, 628xx, atau +62 8xx — otomatis disesuaikan. Satu nomor WA hanya untuk satu toko."],
       ["5. POIN tidak bisa diubah lewat upload (pakai menu Poin). Kolom POIN di file akan diabaikan."],
@@ -711,23 +711,43 @@ app.post("/api/toko/upload", requireAuth, async (req, res) => {
   } catch (e) { kirimError(res, e); }
 });
 
+/**
+ * Cari baris toko: pakai nomor WA, atau KODE_TOKO (?kode=) untuk toko yang WA-nya belum ada.
+ * Param :wa berisi "-" kalau toko belum punya WA.
+ */
+function cariIdxToko(rows, wa, kode) {
+  wa = String(wa || "").trim();
+  if (wa && wa !== "-") {
+    const i = rows.findIndex(r => String((r || [])[6] || "").trim() === wa);
+    if (i !== -1) return i;
+  }
+  kode = String(kode || "").trim().toUpperCase();
+  if (!kode) return -1;
+  return rows.findIndex(r => String((r || [])[3] || "").trim().toUpperCase() === kode);
+}
+
 app.put("/api/toko/:wa", requireAuth, async (req, res) => {
   try {
-    const { dsub, tsub, kode, nama, pic, poin } = req.body;
-    const waToWrite = normWa(req.body.newWa) || req.params.wa;
-    const r = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Data Toko!G2:G" });
+    const { dsub, tsub, kode, nama, poin } = req.body;
+    const pic = req.body.pic || "";
+    if (!kode || !nama) return res.status(400).json({ error: "Kode dan nama toko wajib diisi" });
+    const waToWrite = normWa(req.body.newWa);
+    if (waToWrite && !/^\d{10,15}$/.test(waToWrite)) return res.status(400).json({ error: "Nomor WA tidak valid" });
+    const r = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Data Toko!A2:H" });
     const rows = r.data.values || [];
-    const idx = rows.findIndex(row => String(row[0] || "").trim() === req.params.wa);
+    const idx = cariIdxToko(rows, req.params.wa, req.query.kode);
     if (idx === -1) return res.status(404).json({ error: "Toko tidak ditemukan" });
-    if (waToWrite !== req.params.wa) {
-      const waConflict = rows.findIndex(row => String(row[0] || "").trim() === waToWrite);
-      if (waConflict !== -1 && waConflict !== idx)
-        return res.status(409).json({ error: `Nomor WA ${waToWrite} sudah dipakai toko lain` });
+    if (waToWrite) {
+      const bentrok = rows.findIndex(row => String(row[6] || "").trim() === waToWrite);
+      if (bentrok !== -1 && bentrok !== idx)
+        return res.status(409).json({ error: `Nomor WA ${waToWrite} sudah dipakai toko ${rows[bentrok][4] || rows[bentrok][3] || "lain"}` });
     }
+    const kodeBentrok = rows.findIndex(row => String(row[3] || "").trim().toUpperCase() === String(kode).trim().toUpperCase());
+    if (kodeBentrok !== -1 && kodeBentrok !== idx)
+      return res.status(409).json({ error: `Kode ${kode} sudah dipakai toko ${rows[kodeBentrok][4] || "lain"}` });
     const sheetRow = idx + 2;
-    const oldRow = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: `Data Toko!B${sheetRow}:H${sheetRow}` });
-    const old = (oldRow.data.values || [[]])[0] || [];
-    const oldWa = old[5] || req.params.wa;
+    const old = (rows[idx] || []).slice(1);
+    const oldWa = String(old[5] || "").trim();
     const oldPoin = old[6] || 0;
 
     await sheets.spreadsheets.values.update({
@@ -736,13 +756,13 @@ app.put("/api/toko/:wa", requireAuth, async (req, res) => {
     });
 
     const perubahan = [];
-    if (waToWrite !== oldWa) perubahan.push(`WA: ${oldWa} → ${waToWrite}`);
+    if (waToWrite !== oldWa) perubahan.push(`WA: ${oldWa || "-"} → ${waToWrite || "-"}`);
     if (String(poin) !== String(oldPoin)) perubahan.push(`Poin: ${oldPoin} → ${poin}`);
     if (nama !== old[3]) perubahan.push(`Nama: ${old[3]} → ${nama}`);
     if ((dsub || "") !== (old[0] || "")) perubahan.push(`DSUB: ${old[0] || "-"} → ${dsub || "-"}`);
     if ((tsub || "") !== (old[1] || "")) perubahan.push(`TSUB: ${old[1] || "-"} → ${tsub || "-"}`);
     const ket = (perubahan.length ? perubahan.join(", ") : "Edit data") + " — Via Admin Web";
-    await catatLog(now(), nama, pic || "", kode, "EDIT TOKO", ket, 0, poin || oldPoin);
+    await catatLog(now(), nama, pic, kode, "EDIT TOKO", ket, 0, poin || oldPoin);
     segarkanBot();
     res.json({ ok: true });
   } catch (e) { kirimError(res, e); }
@@ -752,11 +772,11 @@ app.delete("/api/toko/:wa", requireAuth, async (req, res) => {
   try {
     const r = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Data Toko!A2:H" });
     const rows = r.data.values || [];
-    const idx = rows.findIndex(row => String(row[6] || "").trim() === req.params.wa);
+    const idx = cariIdxToko(rows, req.params.wa, req.query.kode);
     if (idx === -1) return res.status(404).json({ error: "Toko tidak ditemukan" });
     const delRow = rows[idx] || [];
     await hapusBaris("Data Toko", idx + 1);
-    await catatLog(now(), delRow[4] || "-", delRow[5] || "", delRow[3] || "-", "HAPUS TOKO", `WA: ${req.params.wa} — Via Admin Web`, 0, 0);
+    await catatLog(now(), delRow[4] || "-", delRow[5] || "", delRow[3] || "-", "HAPUS TOKO", `WA: ${delRow[6] || "-"} — Via Admin Web`, 0, 0);
     segarkanBot();
     res.json({ ok: true });
   } catch (e) { kirimError(res, e); }
@@ -768,13 +788,13 @@ app.delete("/api/toko/:wa", requireAuth, async (req, res) => {
 
 app.post("/api/poin", requireAuth, async (req, res) => {
   try {
-    const { wa, aksi } = req.body;
+    const { wa, kode, aksi } = req.body;
     const jumlah = parseInt(req.body.jumlah);
     if (!jumlah || jumlah <= 0) return res.status(400).json({ error: "Jumlah poin tidak valid" });
     if (!["tambah", "kurangi"].includes(aksi)) return res.status(400).json({ error: "Aksi tidak valid" });
     const r = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Data Toko!A2:H" });
     const rows = r.data.values || [];
-    const idx = rows.findIndex(row => String(row[6] || "").trim() === wa);
+    const idx = cariIdxToko(rows, wa, kode);
     if (idx === -1) return res.status(404).json({ error: "Toko tidak ditemukan" });
     const poinLama = parsePoin(rows[idx][7]);
     const poinBaru = aksi === "tambah" ? poinLama + jumlah : Math.max(0, poinLama - jumlah);

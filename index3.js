@@ -297,7 +297,21 @@ async function tambahPoinByWa(wa, jumlah) {
 async function daftarToko(wa, kode, nama, pic) {
   const tokoDB = await getTokoDB();
   if (tokoDB.find(t => t.wa === wa)) return { sudahAda: true, alasan: "wa" };
-  const tokoSUBSama = tokoDB.find(t => t.code === kode);
+  const tokoSUBSama = tokoDB.find(t => String(t.code).trim().toUpperCase() === String(kode).trim().toUpperCase());
+  if (tokoSUBSama && !tokoSUBSama.wa) {
+    // Toko sudah ada (mis. dari upload HO) tapi WA belum diisi → lengkapi barisnya, poin tetap
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Data Toko!D2:G" });
+    const i = (res.data.values || []).findIndex(r => r && String(r[0] || "").trim().toUpperCase() === String(kode).trim().toUpperCase() && !String(r[3] || "").trim());
+    if (i !== -1) {
+      const namaBaru = tokoSUBSama.nama || nama, picBaru = tokoSUBSama.penjaga || pic;
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SID(), range: `Data Toko!E${i + 2}:G${i + 2}`,
+        valueInputOption: "RAW", requestBody: { values: [[namaBaru, picBaru, wa]] },
+      });
+      cache.toko.at = 0;
+      return { sudahAda: false, dilengkapi: true, wa, kode: tokoSUBSama.code, nama: namaBaru, pic: picBaru, poin: tokoSUBSama.poin };
+    }
+  }
   if (tokoSUBSama) return { sudahAda: true, alasan: "kode", tokoExisting: tokoSUBSama };
   const id = Date.now().toString();
   await sheets.spreadsheets.values.append({
@@ -467,7 +481,7 @@ async function notifKurangi(toko, jumlah, poinBaru, byAdmin) {
 async function notifDaftar(toko, byAdmin) {
   const tgl = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
   await kirimNotif(
-    `🆕 *TOKO BARU TERDAFTAR*\n\n` +
+    `${toko.dilengkapi ? "📱 *WA TOKO DILENGKAPI*" : "🆕 *TOKO BARU TERDAFTAR*"}\n\n` +
     `📅 Waktu  : ${tgl}\n` +
     `👤 Admin  : ${byAdmin}\n` +
     `🏪 Toko   : ${toko.nama}\n` +
@@ -1113,7 +1127,9 @@ async function prosesAdmin(wa, teks) {
         `Contoh:\nDAFTAR 628123456789,TK001,Toko Maju,Budi`
       );
     }
-    const [targetWa, kode, nama, pic] = bagian;
+    const [waInput, kode, nama, pic] = bagian;
+    const targetWa = normWa(waInput);
+    if (!/^\d{10,15}$/.test(targetWa)) return `❌ Nomor WA *${waInput}* tidak valid.`;
     try {
       const result = await daftarToko(targetWa, kode, nama, pic);
       if (result.sudahAda && result.alasan === "wa") {
@@ -1132,12 +1148,12 @@ async function prosesAdmin(wa, teks) {
       }
       await notifDaftar(result, wa);
       return (
-        `✅ Toko berhasil didaftarkan!\n\n` +
+        `✅ ${result.dilengkapi ? "Nomor WA toko berhasil dilengkapi" : "Toko berhasil didaftarkan"}!\n\n` +
         `📱 WA    : ${targetWa}\n` +
-        `📦 Kode  : ${kode}\n` +
-        `🏪 Toko  : ${nama}\n` +
-        `👤 PIC   : ${pic}\n` +
-        `⭐ Poin  : 0`
+        `📦 Kode  : ${result.kode}\n` +
+        `🏪 Toko  : ${result.nama}\n` +
+        `👤 PIC   : ${result.pic}\n` +
+        `⭐ Poin  : ${fmt(result.poin || 0)}`
       );
     } catch (err) {
       console.error("Gagal daftar toko:", err.message);
