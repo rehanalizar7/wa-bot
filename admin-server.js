@@ -136,7 +136,7 @@ function serviceAccountEmail() {
 
 // Struktur sheet yang dipakai bot
 const SHEET_STRUKTUR = {
-  "Data Toko":    ["ID", "DSUB", "TSUB", "KODE_TOKO", "NAMA_TOKO", "PIC_TOKO", "WA", "POIN", "KONTRIBUTOR"],
+  "Data Toko":    ["ID", "DISTRICT_CODE", "TERRITORY_CODE", "KODE_TOKO", "NAMA_TOKO", "PIC_TOKO", "WA", "POIN", "KONTRIBUTOR"],
   "List_Hadiah":  ["ID", "NAMA", "POIN", "GAMBAR", "STOK", "TIPE"],
   "LOG_KLAIM":    ["TANGGAL", "NAMA_TOKO", "PIC_TOKO", "KODE_TOKO", "AKSI", "KETERANGAN", "POIN_DIUBAH", "SISA_POIN"],
   "Info_Program": ["JUDUL", "DESKRIPSI", "GAMBAR", "MEKANISME", "PERIODE", "KODE_PROGRAM", "TARGET", "SATUAN"],
@@ -471,11 +471,11 @@ function bentukAnggota(role, body) {
   const o = { wa, nama };
   if (role === "re") {
     o.tsub = toList(body.wilayah).map(t => t.replace(/^TSUB/i, ""));
-    if (!o.tsub.length) throw Object.assign(new Error("Isi minimal 1 TSUB"), { status: 400 });
+    if (!o.tsub.length) throw Object.assign(new Error("Isi minimal 1 Territory Code"), { status: 400 });
   }
   if (role === "spv") {
     o.dsub = toList(body.wilayah).map(d => d.replace(/^DSUB/i, ""));
-    if (!o.dsub.length) throw Object.assign(new Error("Isi minimal 1 DSUB"), { status: 400 });
+    if (!o.dsub.length) throw Object.assign(new Error("Isi minimal 1 District Code"), { status: 400 });
   }
   return o;
 }
@@ -759,8 +759,8 @@ app.put("/api/toko/:wa", requireAuth, async (req, res) => {
     if (waToWrite !== oldWa) perubahan.push(`WA: ${oldWa || "-"} → ${waToWrite || "-"}`);
     if (String(poin) !== String(oldPoin)) perubahan.push(`Poin: ${oldPoin} → ${poin}`);
     if (nama !== old[3]) perubahan.push(`Nama: ${old[3]} → ${nama}`);
-    if ((dsub || "") !== (old[0] || "")) perubahan.push(`DSUB: ${old[0] || "-"} → ${dsub || "-"}`);
-    if ((tsub || "") !== (old[1] || "")) perubahan.push(`TSUB: ${old[1] || "-"} → ${tsub || "-"}`);
+    if ((dsub || "") !== (old[0] || "")) perubahan.push(`District Code: ${old[0] || "-"} → ${dsub || "-"}`);
+    if ((tsub || "") !== (old[1] || "")) perubahan.push(`Territory Code: ${old[1] || "-"} → ${tsub || "-"}`);
     const ket = (perubahan.length ? perubahan.join(", ") : "Edit data") + " — Via Admin Web";
     await catatLog(now(), nama, pic, kode, "EDIT TOKO", ket, 0, poin || oldPoin);
     segarkanBot();

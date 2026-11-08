@@ -377,7 +377,7 @@ async function notifKlaimKeRE(toko, hadiah, sisaPoin) {
     }
   }
   // RE tidak ada atau gagal → notif ke grup dengan keterangan
-  const namaRE = re ? re.nama : `TSUB${toko.tsub}`;
+  const namaRE = re ? re.nama : `Territory Code ${toko.tsub}`;
   await kirimNotif(
     pesanRE + `\n\n⚠️ *RE: ${namaRE}* — belum ada nomor RE yang tertaut`
   );
@@ -578,7 +578,7 @@ function buildPromptRE(re, tokoArea) {
     .map(t => `${t.nama} (${t.code}): ${fmt(t.poin)} poin`).join(", ");
   return (
     `Kamu adalah asisten RE (Sales) WhatsApp. Jawab singkat, ramah, natural. Bahasa Indonesia santai. Jangan sebut kamu AI. Format: *bold* (bukan **bold**), _italic_. Jangan pakai markdown lain.\n\n` +
-    `Data RE:\n- Nama: ${re.nama}\n- Territory: TSUB${tsubList.join(", TSUB")}\n` +
+    `Data RE:\n- Nama: ${re.nama}\n- Territory Code: ${tsubList.join(", ")}\n` +
     `- Total toko: ${tokoArea.length} | Aktif: ${aktif} | Total poin: ${fmt(totalPoin)}\n` +
     `- Top toko: ${topToko || "-"}\n\n` +
     `Perintah yang tersedia: CEK [kode], LIST, RINGKASAN.\n` +
@@ -593,7 +593,7 @@ function buildPromptSPV(spv, dsubList, tokoArea, reArea, ranking) {
     .map((r, i) => `${i+1}. ${r.nama} (${fmt(r.totalPoin)} poin, ${r.aktif}/${r.totalToko} toko aktif)`).join(", ");
   return (
     `Kamu adalah asisten Supervisor WhatsApp. Jawab singkat, ramah, natural. Bahasa Indonesia santai. Jangan sebut kamu AI. Format: *bold* (bukan **bold**), _italic_. Jangan pakai markdown lain.\n\n` +
-    `Data Supervisor:\n- Nama: ${spv.nama}\n- Area: DSUB${dsubList.join(", DSUB")}\n` +
+    `Data Supervisor:\n- Nama: ${spv.nama}\n- District Code: ${dsubList.join(", ")}\n` +
     `- Total toko: ${tokoArea.length} | Aktif: ${aktif} | Total poin: ${fmt(totalPoin)}\n` +
     `- Total RE: ${reArea.length}\n- Ranking RE: ${rankingText || "-"}\n\n` +
     `Perintah yang tersedia: CEK [kode], LIST, LIST RE, RINGKASAN.\n` +
@@ -605,14 +605,14 @@ function buildPromptManajer(mgr, tokoDB, ranking) {
   const aktif = tokoDB.filter(t => t.poin > 0).length;
   const totalPoin = tokoDB.reduce((s, t) => s + t.poin, 0);
   const rankingText = ranking.slice(0, 3)
-    .map((d, i) => `${i+1}. DSUB${d.dsub} (${fmt(d.totalPoin)} poin, ${d.aktif}/${d.totalToko} toko aktif)`).join(", ");
+    .map((d, i) => `${i+1}. District ${d.dsub} (${fmt(d.totalPoin)} poin, ${d.aktif}/${d.totalToko} toko aktif)`).join(", ");
   return (
     `Kamu adalah asisten Manajer WhatsApp. Jawab singkat, ramah, natural. Bahasa Indonesia santai. Jangan sebut kamu AI. Format: *bold* (bukan **bold**), _italic_. Jangan pakai markdown lain.\n\n` +
     `Data Manajer:\n- Nama: ${mgr.nama}\n- Scope: semua wilayah\n` +
     `- Total toko: ${tokoDB.length} | Aktif: ${aktif} | Total poin: ${fmt(totalPoin)}\n` +
-    `- Ranking DSUB: ${rankingText || "-"}\n\n` +
-    `Perintah yang tersedia: CEK [kode], LIST, LIST [DSUB], RINGKASAN.\n` +
-    `Panduan: bantu Manajer memahami kondisi global dan performa per DSUB. Jawaban maks 3-4 kalimat.`
+    `- Ranking District Code: ${rankingText || "-"}\n\n` +
+    `Perintah yang tersedia: CEK [kode], LIST, LIST [District Code], RINGKASAN.\n` +
+    `Panduan: bantu Manajer memahami kondisi global dan performa per District Code. Jawaban maks 3-4 kalimat.`
   );
 }
 
@@ -1233,7 +1233,7 @@ async function prosesAdmin(wa, teks) {
       if (!reList.length) return `👥 Belum ada RE terdaftar.`;
       const list = reList.map((r, i) => {
         const tsub = Array.isArray(r.tsub) ? r.tsub.join(", ") : r.tsub;
-        return `${i+1}. *${r.nama}*\n   📱 ${r.wa}\n   📍 TSUB: ${tsub}`;
+        return `${i+1}. *${r.nama}*\n   📱 ${r.wa}\n   📍 Territory Code: ${tsub}`;
       }).join("\n\n");
       return `👥 *Daftar RE (${reList.length})*\n\n${list}`;
     }
@@ -1243,14 +1243,14 @@ async function prosesAdmin(wa, teks) {
       const sisaTeks = teks.trim().slice(("RE TAMBAH").length).trim();
       const bagian = sisaTeks.split(",").map(s => s.trim());
       if (bagian.length < 3 || bagian.some(b => !b))
-        return `Format: *RE TAMBAH [wa],[nama],[tsub]*\nTsub bisa lebih dari 1: *033+034*\nContoh: RE TAMBAH 628123456789,Budi,033`;
+        return `Format: *RE TAMBAH [wa],[nama],[territory code]*\nTerritory Code bisa lebih dari 1: *033+034*\nContoh: RE TAMBAH 628123456789,Budi,033`;
       const [reWaRaw, reNama, tsubRaw] = bagian; const reWa = normWa(reWaRaw);
       const tsubArr = tsubRaw.split("+").map(s => s.trim().replace(/^TSUB/i, "")).filter(Boolean);
       const reList = loadRE();
       if (reList.find(r => r.wa === reWa)) return `❌ Nomor *${reWa}* sudah terdaftar sebagai RE.`;
       reList.push({ wa: reWa, nama: reNama, tsub: tsubArr.length === 1 ? tsubArr[0] : tsubArr });
       saveRE(reList);
-      return `✅ RE *${reNama}* (${reWa}) berhasil ditambahkan!\nTerritory: TSUB${tsubArr.join(", TSUB")}`;
+      return `✅ RE *${reNama}* (${reWa}) berhasil ditambahkan!\nTerritory Code: ${tsubArr.join(", ")}`;
     }
 
     if (sub === "HAPUS") {
@@ -1274,10 +1274,10 @@ async function prosesAdmin(wa, teks) {
       if (idx === -1) return `❌ Nomor *${reWa}* tidak ditemukan.`;
       reList[idx] = { wa: reWa, nama: reNama, tsub: tsubArr.length === 1 ? tsubArr[0] : tsubArr };
       saveRE(reList);
-      return `✅ Data RE *${reWa}* diupdate!\nNama: ${reNama} | TSUB: ${tsubArr.join(", ")}`;
+      return `✅ Data RE *${reWa}* diupdate!\nNama: ${reNama} | Territory Code: ${tsubArr.join(", ")}`;
     }
 
-    return `👥 *Kelola RE*\n\nRE LIST\nRE TAMBAH [wa],[nama],[tsub]\nRE EDIT [wa],[nama],[tsub]\nRE HAPUS [wa]\n\n_Tsub lebih dari 1: pisah dengan + contoh 033+034_`;
+    return `👥 *Kelola RE*\n\nRE LIST\nRE TAMBAH [wa],[nama],[territory code]\nRE EDIT [wa],[nama],[territory code]\nRE HAPUS [wa]\n\n_Territory Code lebih dari 1: pisah dengan + contoh 033+034_`;
   }
 
   if (perintah === "SPV") {
@@ -1288,7 +1288,7 @@ async function prosesAdmin(wa, teks) {
       if (!spvList.length) return `👥 Belum ada Supervisor terdaftar.`;
       const list = spvList.map((s, i) => {
         const dsub = Array.isArray(s.dsub) ? s.dsub.join(", ") : s.dsub;
-        return `${i+1}. *${s.nama}*\n   📱 ${s.wa}\n   📍 DSUB: ${dsub}`;
+        return `${i+1}. *${s.nama}*\n   📱 ${s.wa}\n   📍 District Code: ${dsub}`;
       }).join("\n\n");
       return `👥 *Daftar Supervisor (${spvList.length})*\n\n${list}`;
     }
@@ -1298,14 +1298,14 @@ async function prosesAdmin(wa, teks) {
       const sisaTeks = teks.trim().slice(("SPV TAMBAH").length).trim();
       const bagian = sisaTeks.split(",").map(s => s.trim());
       if (bagian.length < 3 || bagian.some(b => !b))
-        return `Format: *SPV TAMBAH [wa],[nama],[dsub]*\nDsub bisa lebih dari 1: *01+02*\nContoh: SPV TAMBAH 628123456789,Budi,01`;
+        return `Format: *SPV TAMBAH [wa],[nama],[district code]*\nDistrict Code bisa lebih dari 1: *01+02*\nContoh: SPV TAMBAH 628123456789,Budi,01`;
       const [spvWaRaw, spvNama, dsubRaw] = bagian; const spvWa = normWa(spvWaRaw);
       const dsubArr = dsubRaw.split("+").map(s => s.trim().replace(/^DSUB/i, "")).filter(Boolean);
       const spvList = loadSPV();
       if (spvList.find(s => s.wa === spvWa)) return `❌ Nomor *${spvWa}* sudah terdaftar sebagai Supervisor.`;
       spvList.push({ wa: spvWa, nama: spvNama, dsub: dsubArr.length === 1 ? dsubArr[0] : dsubArr });
       saveSPV(spvList);
-      return `✅ Supervisor *${spvNama}* (${spvWa}) berhasil ditambahkan!\nArea: DSUB${dsubArr.join(", DSUB")}`;
+      return `✅ Supervisor *${spvNama}* (${spvWa}) berhasil ditambahkan!\nDistrict Code: ${dsubArr.join(", ")}`;
     }
 
     if (sub === "HAPUS") {
@@ -1329,10 +1329,10 @@ async function prosesAdmin(wa, teks) {
       if (idx === -1) return `❌ Nomor *${spvWa}* tidak ditemukan.`;
       spvList[idx] = { wa: spvWa, nama: spvNama, dsub: dsubArr.length === 1 ? dsubArr[0] : dsubArr };
       saveSPV(spvList);
-      return `✅ Data Supervisor *${spvWa}* diupdate!\nNama: ${spvNama} | DSUB: ${dsubArr.join(", ")}`;
+      return `✅ Data Supervisor *${spvWa}* diupdate!\nNama: ${spvNama} | District Code: ${dsubArr.join(", ")}`;
     }
 
-    return `👥 *Kelola Supervisor*\n\nSPV LIST\nSPV TAMBAH [wa],[nama],[dsub]\nSPV EDIT [wa],[nama],[dsub]\nSPV HAPUS [wa]\n\n_Dsub lebih dari 1: pisah dengan + contoh 01+02_`;
+    return `👥 *Kelola Supervisor*\n\nSPV LIST\nSPV TAMBAH [wa],[nama],[district code]\nSPV EDIT [wa],[nama],[district code]\nSPV HAPUS [wa]\n\n_District Code lebih dari 1: pisah dengan + contoh 01+02_`;
   }
 
   if (perintah === "MANAJER") {
@@ -1606,7 +1606,7 @@ function formatDetailToko(toko) {
     `🏪 Nama  : ${toko.nama}\n` +
     `👤 PIC   : ${toko.penjaga || "-"}\n` +
     `📦 Kode  : ${toko.code}\n` +
-    `📍 DSUB  : ${toko.dsub} | TSUB: ${toko.tsub}\n` +
+    `📍 District Code : ${toko.dsub || "-"} | Territory Code: ${toko.tsub || "-"}\n` +
     `📱 WA    : ${toko.wa}\n` +
     `⭐ Poin  : *${fmt(toko.poin)}*` +
     kontrib
@@ -1668,7 +1668,7 @@ async function prosesRE(wa, teks) {
   if (["HALO", "MENU", "HI", "HELLO", "HAI", "0"].includes(inp) || inp === "") {
     return (
       `Halo *${re.nama}*! 👋\n` +
-      `Territory: *TSUB${tsubList.join(", TSUB")}*\n` +
+      `Territory Code: *${tsubList.join(", ")}*\n` +
       `Total toko: *${tokoArea.length}*\n\n` +
       `📋 *Menu RE:*\n` +
       `CEK [kode outlet] — detail toko + kontributor\n` +
@@ -1685,7 +1685,7 @@ async function prosesRE(wa, teks) {
     const hasil = cariToko(query, tokoArea);
     if (!hasil) {
       const luarArea = cariToko(query, tokoDB);
-      if (luarArea?.toko) return `⛔ Toko *${luarArea.toko.nama}* (${luarArea.toko.code}) ada tapi di luar territory kamu (TSUB${luarArea.toko.tsub}).`;
+      if (luarArea?.toko) return `⛔ Toko *${luarArea.toko.nama}* (${luarArea.toko.code}) ada tapi di luar territory kamu (Territory Code ${luarArea.toko.tsub}).`;
       return `❌ Toko *${query}* tidak ditemukan di territory kamu.`;
     }
     if (hasil.list) return formatListCari(hasil, query);
@@ -1703,7 +1703,7 @@ async function prosesRE(wa, teks) {
       }).join("\n\n");
 
     return (
-      `📋 *Toko Territory TSUB${tsubList.join("/")}* (${tokoArea.length} toko) _urut poin terbesar_\n` +
+      `📋 *Toko Territory Code ${tsubList.join("/")}* (${tokoArea.length} toko) _urut poin terbesar_\n` +
       `\n${list}`
     );
   }
@@ -1711,7 +1711,7 @@ async function prosesRE(wa, teks) {
   // RINGKASAN — analisa kondisi territory + rekomendasi aksi
   if (perintah === "RINGKASAN") {
     if (tokoArea.length === 0) return `Tidak ada toko di territory kamu.`;
-    return `📊 *Ringkasan Territory TSUB${tsubList.join("/")}*\n` + buildRingkasanBody(tokoArea, "RE");
+    return `📊 *Ringkasan Territory Code ${tsubList.join("/")}*\n` + buildRingkasanBody(tokoArea, "RE");
   }
 
   if (isAITester(wa)) return callGemini(buildPromptRE(re, tokoArea), teks);
@@ -1751,7 +1751,7 @@ async function prosesSupervisor(wa, teks) {
   if (["HALO", "MENU", "HI", "HELLO", "HAI", "0"].includes(inp) || inp === "") {
     return (
       `Halo *${spv.nama}*! 👋\n` +
-      `Area: *DSUB${dsubList.join(", DSUB")}*\n` +
+      `District Code: *${dsubList.join(", ")}*\n` +
       `Total toko: *${tokoArea.length}* | Total RE: *${reArea.length}*\n\n` +
       `📋 *Menu Supervisor:*\n` +
       `CEK [kode outlet] — detail toko + kontributor\n` +
@@ -1769,7 +1769,7 @@ async function prosesSupervisor(wa, teks) {
     const hasil = cariToko(query, tokoArea);
     if (!hasil) {
       const luarArea = cariToko(query, tokoDB);
-      if (luarArea?.toko) return `⛔ Toko *${luarArea.toko.nama}* (${luarArea.toko.code}) ada tapi di luar area kamu (DSUB${luarArea.toko.dsub}).`;
+      if (luarArea?.toko) return `⛔ Toko *${luarArea.toko.nama}* (${luarArea.toko.code}) ada tapi di luar area kamu (District Code ${luarArea.toko.dsub}).`;
       return `❌ Toko *${query}* tidak ditemukan di area kamu.`;
     }
     if (hasil.list) return formatListCari(hasil, query);
@@ -1781,9 +1781,9 @@ async function prosesSupervisor(wa, teks) {
     if (reArea.length === 0) return `Belum ada RE terdaftar di area kamu.`;
     const ranking = rankingRE(reArea, tokoArea);
     const list = ranking.map((r, i) =>
-      `${i+1}. *${r.nama}* (TSUB${r.tsub.join("/")})\n    ⭐ ${fmt(r.totalPoin)} poin | 🏪 ${r.aktif}/${r.totalToko} toko aktif`
+      `${i+1}. *${r.nama}* (Territory Code ${r.tsub.join("/")})\n    ⭐ ${fmt(r.totalPoin)} poin | 🏪 ${r.aktif}/${r.totalToko} toko aktif`
     ).join("\n\n");
-    return `🏆 *Ranking RE — DSUB${dsubList.join("/")}*\n\n${list}`;
+    return `🏆 *Ranking RE — District Code ${dsubList.join("/")}*\n\n${list}`;
   }
 
   // LIST — daftar toko di area, urut poin terbanyak
@@ -1797,7 +1797,7 @@ async function prosesSupervisor(wa, teks) {
       }).join("\n\n");
 
     return (
-      `📋 *Toko Area DSUB${dsubList.join("/")}* (${tokoArea.length} toko) _urut poin terbesar_\n` +
+      `📋 *Toko District Code ${dsubList.join("/")}* (${tokoArea.length} toko) _urut poin terbesar_\n` +
       `\n${list}`
     );
   }
@@ -1806,7 +1806,7 @@ async function prosesSupervisor(wa, teks) {
   if (perintah === "RINGKASAN") {
     if (tokoArea.length === 0) return `Tidak ada toko di area kamu.`;
 
-    let msg = `📊 *Ringkasan Area DSUB${dsubList.join("/")}*\n` + buildRingkasanBody(tokoArea, "Supervisor");
+    let msg = `📊 *Ringkasan District Code ${dsubList.join("/")}*\n` + buildRingkasanBody(tokoArea, "Supervisor");
 
     if (reArea.length > 0) {
       const ranking = rankingRE(reArea, tokoArea);
@@ -1857,9 +1857,9 @@ async function prosesManajer(wa, teks) {
       `Total toko: *${tokoDB.length}*\n\n` +
       `📋 *Menu Manajer:*\n` +
       `CEK [kode outlet] — detail toko (semua wilayah)\n` +
-      `LIST — ranking performa per DSUB\n` +
-      `LIST [DSUB] — toko di DSUB tertentu (urut poin terbesar)\n` +
-      `RINGKASAN — analisa global & ranking DSUB`
+      `LIST — ranking performa per District Code\n` +
+      `LIST [District Code] — toko di District Code tertentu (urut poin terbesar)\n` +
+      `RINGKASAN — analisa global & ranking District Code`
     );
   }
 
@@ -1876,18 +1876,18 @@ async function prosesManajer(wa, teks) {
 
   // LIST [DSUB] — tanpa argumen: ranking semua DSUB. Dengan argumen: drill ke toko di DSUB itu
   if (perintah === "LIST") {
-    const dsubArg = (parts[1] || "").trim().toUpperCase().replace(/^DSUB/, "");
+    const dsubArg = parts.slice(1).join(" ").trim().toUpperCase().replace(/^(DSUB|DISTRICT(\s*CODE)?)\s*/, "");
 
     if (!dsubArg) {
       const ranking = rankingDSUB(tokoDB);
       const list = ranking.map((d, i) =>
-        `${i+1}. *DSUB${d.dsub}*\n    ⭐ ${fmt(d.totalPoin)} poin | 🏪 ${d.aktif}/${d.totalToko} toko aktif`
+        `${i+1}. *District Code ${d.dsub}*\n    ⭐ ${fmt(d.totalPoin)} poin | 🏪 ${d.aktif}/${d.totalToko} toko aktif`
       ).join("\n\n");
-      return `🏆 *Ranking Performa DSUB*\n_Ketik LIST [DSUB] buat lihat toko di dalamnya_\n\n${list}`;
+      return `🏆 *Ranking Performa District Code*\n_Ketik LIST [District Code] buat lihat toko di dalamnya_\n\n${list}`;
     }
 
     const tokoArea = tokoDB.filter(t => String(t.dsub) === dsubArg);
-    if (tokoArea.length === 0) return `Tidak ada toko di DSUB${dsubArg}.`;
+    if (tokoArea.length === 0) return `Tidak ada toko di District Code ${dsubArg}.`;
     const list = [...tokoArea]
       .sort((a, b) => b.poin - a.poin)
       .map((t, i) => {
@@ -1895,7 +1895,7 @@ async function prosesManajer(wa, teks) {
         return `${i+1}. *${t.nama}* (${t.code})\n    ⭐ ${fmt(t.poin)} poin${kontrib}`;
       }).join("\n\n");
 
-    return `📋 *Toko DSUB${dsubArg}* (${tokoArea.length} toko) _urut poin terbesar_\n\n${list}`;
+    return `📋 *Toko District Code ${dsubArg}* (${tokoArea.length} toko) _urut poin terbesar_\n\n${list}`;
   }
 
   // RINGKASAN — analisa global + ranking performa per DSUB
@@ -1905,14 +1905,14 @@ async function prosesManajer(wa, teks) {
     let msg = `📊 *Ringkasan Global*\n` + buildRingkasanBody(tokoDB, "Manajer");
 
     const ranking = rankingDSUB(tokoDB);
-    msg += `\n\n🏆 *Performa per DSUB:*\n`;
+    msg += `\n\n🏆 *Performa per District Code:*\n`;
     ranking.slice(0, 10).forEach((d, i) => {
-      msg += `${i+1}. DSUB${d.dsub}: ⭐ ${fmt(d.totalPoin)} poin | ${d.aktif}/${d.totalToko} toko aktif\n`;
+      msg += `${i+1}. District Code ${d.dsub}: ⭐ ${fmt(d.totalPoin)} poin | ${d.aktif}/${d.totalToko} toko aktif\n`;
     });
-    if (ranking.length > 10) msg += `  _...dan ${ranking.length - 10} DSUB lainnya_\n`;
+    if (ranking.length > 10) msg += `  _...dan ${ranking.length - 10} District Code lainnya_\n`;
 
     const lemah = ranking[ranking.length - 1];
-    if (ranking.length > 1) msg += `→ *Perhatian:* DSUB${lemah.dsub} performa paling rendah, perlu evaluasi.`;
+    if (ranking.length > 1) msg += `→ *Perhatian:* District Code ${lemah.dsub} performa paling rendah, perlu evaluasi.`;
 
     return msg.trim();
   }
@@ -1924,9 +1924,9 @@ async function prosesManajer(wa, teks) {
   return (
     `📋 *Menu Manajer:*\n` +
     `CEK [kode outlet] — detail toko (semua wilayah)\n` +
-    `LIST — ranking performa per DSUB\n` +
-    `LIST [DSUB] — toko di DSUB tertentu (urut poin terbesar)\n` +
-    `RINGKASAN — analisa global & ranking DSUB`
+    `LIST — ranking performa per District Code\n` +
+    `LIST [District Code] — toko di District Code tertentu (urut poin terbesar)\n` +
+    `RINGKASAN — analisa global & ranking District Code`
   );
 }
 

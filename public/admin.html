@@ -113,8 +113,8 @@
       </div>
       <div class="flex flex-wrap gap-2">
         <input id="searchToko" oninput="filterToko()" type="text" placeholder="Cari nama / kode / WA..." class="inp !mt-0 flex-1 min-w-40">
-        <select id="filterDsub" onchange="filterToko()" class="inp !mt-0 !w-auto"><option value="">Semua DSUB</option></select>
-        <select id="filterTsub" onchange="filterToko()" class="inp !mt-0 !w-auto"><option value="">Semua TSUB</option></select>
+        <select id="filterDsub" onchange="filterToko()" class="inp !mt-0 !w-auto"><option value="">Semua District Code</option></select>
+        <select id="filterTsub" onchange="filterToko()" class="inp !mt-0 !w-auto"><option value="">Semua Territory Code</option></select>
         <button onclick="resetFilterToko()" class="btn btn-sec">Reset</button>
       </div>
       <div id="filterInfo" class="text-xs text-gray-400 hidden"></div>
@@ -122,7 +122,7 @@
     <div class="card overflow-hidden"><div class="overflow-x-auto">
       <table class="w-full text-sm">
         <thead class="bg-gray-50 text-gray-600 text-left"><tr>
-          <th class="px-4 py-3">Nama Toko</th><th class="px-4 py-3">Kode</th><th class="px-4 py-3">DSUB/TSUB</th>
+          <th class="px-4 py-3">Nama Toko</th><th class="px-4 py-3">Kode</th><th class="px-4 py-3">District / Territory Code</th>
           <th class="px-4 py-3">PIC</th><th class="px-4 py-3">WA</th><th class="px-4 py-3 text-right">Poin</th><th class="px-4 py-3 text-center">Aksi</th>
         </tr></thead>
         <tbody id="tokoTable"><tr><td colspan="7" class="text-center py-8 text-gray-400">Memuat...</td></tr></tbody>
@@ -364,8 +364,8 @@
       <div><label class="lbl">Nama Toko <span class="text-red-500">*</span></label><input id="tokoNama" class="inp" placeholder="Toko Maju Jaya"></div>
       <div><label class="lbl">Nama PIC <span class="text-red-500">*</span></label><input id="tokoPic" class="inp" placeholder="Nama penjaga toko"></div>
       <div class="grid grid-cols-2 gap-3">
-        <div><label class="lbl">DSUB</label><input id="tokoDsub" class="inp" list="dlDsub"></div>
-        <div><label class="lbl">TSUB</label><input id="tokoTsub" class="inp" list="dlTsub"></div>
+        <div><label class="lbl">District Code</label><input id="tokoDsub" class="inp" list="dlDsub"></div>
+        <div><label class="lbl">Territory Code</label><input id="tokoTsub" class="inp" list="dlTsub"></div>
       </div>
       <div id="tokoPoinWrap"><label class="lbl">Poin</label><input id="tokoPoin" type="number" class="inp"></div>
     </div>
@@ -463,7 +463,7 @@
       <h3 class="text-lg font-bold text-gray-800">⬆️ Upload Data Toko</h3>
       <button onclick="closeModal('modalUpToko')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
     </div>
-    <p class="hint mb-3">Pilih file Excel (.xlsx / .xls) atau .csv berkolom <b>KODE_TOKO, NAMA_TOKO, PIC_TOKO, WA, DSUB, TSUB</b>. Kode yang sudah ada diperbarui, kode baru ditambahkan (cukup KODE_TOKO, kolom lain boleh kosong &amp; dilengkapi nanti). Sel kosong tidak mengubah data lama. POIN tidak diubah dan toko tidak dihapus lewat upload. Belum punya format? Klik <a href="#" onclick="downloadTemplateToko();return false" class="text-blue-600 underline">Download Template</a>.</p>
+    <p class="hint mb-3">Pilih file Excel (.xlsx / .xls) atau .csv berkolom <b>KODE_TOKO, NAMA_TOKO, PIC_TOKO, WA, DISTRICT_CODE, TERRITORY_CODE</b>. Kode yang sudah ada diperbarui, kode baru ditambahkan (cukup KODE_TOKO, kolom lain boleh kosong &amp; dilengkapi nanti). Sel kosong tidak mengubah data lama. POIN tidak diubah dan toko tidak dihapus lewat upload. Belum punya format? Klik <a href="#" onclick="downloadTemplateToko();return false" class="text-blue-600 underline">Download Template</a>.</p>
     <input type="file" id="utFile" accept=".xlsx,.xls,.csv" class="block w-full text-sm text-gray-700 border border-gray-300 rounded-lg p-2" onchange="pratinjauUpToko()">
     <div id="utHasil" class="mt-4"></div>
     <div class="flex gap-3 mt-5">
@@ -677,8 +677,8 @@ function uniq(arr) { return [...new Set(arr.filter(Boolean))].sort(); }
 function populateFilterOptions() {
   const dsub = uniq(tokoData.map(t => t.dsub)), tsub = uniq(tokoData.map(t => t.tsub));
   const d = $("filterDsub"), t = $("filterTsub"), dv = d.value, tv = t.value;
-  d.innerHTML = '<option value="">Semua DSUB</option>' + dsub.map(v => `<option>${esc(v)}</option>`).join("");
-  t.innerHTML = '<option value="">Semua TSUB</option>' + tsub.map(v => `<option>${esc(v)}</option>`).join("");
+  d.innerHTML = '<option value="">Semua District Code</option>' + dsub.map(v => `<option>${esc(v)}</option>`).join("");
+  t.innerHTML = '<option value="">Semua Territory Code</option>' + tsub.map(v => `<option>${esc(v)}</option>`).join("");
   d.value = dv; t.value = tv;
   $("dlDsub").innerHTML = dsub.map(v => `<option value="${esc(v)}">`).join("");
   $("dlTsub").innerHTML = tsub.map(v => `<option value="${esc(v)}">`).join("");
@@ -1189,11 +1189,12 @@ async function loadLog() {
 }
 
 // ============================================================ TIM
+const namaWilayah = w => w === "tsub" ? "Territory Code" : w === "dsub" ? "District Code" : String(w || "").toUpperCase();
 const ROLE_INFO = {
   admin:   { judul: "👮 Admin", desc: "Bisa kelola semua lewat chat WA: daftar toko, tambah/kurangi poin, hadiah, dan tim.", wilayah: null },
-  manajer: { judul: "🧑‍💼 Manajer", desc: "Lihat data semua wilayah: CEK toko, LIST per DSUB, RINGKASAN global.", wilayah: null },
-  spv:     { judul: "🧭 Supervisor", desc: "Lihat toko & performa RE di DSUB-nya: CEK, LIST, LIST RE, RINGKASAN.", wilayah: "dsub" },
-  re:      { judul: "🚶 RE (Sales)", desc: "Lihat toko di TSUB-nya: CEK, LIST, RINGKASAN. Dapat notif WA tiap ada klaim di wilayahnya.", wilayah: "tsub" },
+  manajer: { judul: "🧑‍💼 Manajer", desc: "Lihat data semua wilayah: CEK toko, LIST per District Code, RINGKASAN global.", wilayah: null },
+  spv:     { judul: "🧭 Supervisor", desc: "Lihat toko & performa RE di District Code-nya: CEK, LIST, LIST RE, RINGKASAN.", wilayah: "dsub" },
+  re:      { judul: "🚶 RE (Sales)", desc: "Lihat toko di Territory Code-nya: CEK, LIST, RINGKASAN. Dapat notif WA tiap ada klaim di wilayahnya.", wilayah: "tsub" },
 };
 async function loadTim() {
   try { timData = await api("GET", "/api/tim"); }
@@ -1223,7 +1224,7 @@ async function loadTim() {
         <div class="overflow-x-auto"><table class="w-full text-sm">
           <thead class="bg-gray-50 text-gray-600 text-left"><tr>
             <th class="px-4 py-2">Nomor WA</th>${role !== "admin" ? '<th class="px-4 py-2">Nama</th>' : ""}
-            ${info.wilayah ? `<th class="px-4 py-2">${info.wilayah.toUpperCase()}</th>` : ""}<th></th></tr></thead>
+            ${info.wilayah ? `<th class="px-4 py-2">${namaWilayah(info.wilayah)}</th>` : ""}<th></th></tr></thead>
           <tbody>${superRow}${baris || (role === "admin" ? "" : '<tr><td colspan="4" class="px-4 py-4 text-center text-gray-400">Belum ada</td></tr>')}</tbody>
         </table></div>
       </div>`;
@@ -1238,7 +1239,7 @@ function openTim(role, i) {
   $("timNamaWrap").classList.toggle("hidden", role === "admin");
   $("timWilayahWrap").classList.toggle("hidden", !info.wilayah);
   if (info.wilayah) {
-    const W = info.wilayah.toUpperCase();
+    const W = namaWilayah(info.wilayah);
     $("timWilayahLbl").innerHTML = `${W} <span class="text-red-500">*</span>`;
     $("timWilayah").value = m ? (m[info.wilayah] || []).join(", ") : "";
     $("timWilayah").placeholder = info.wilayah === "tsub" ? "contoh: 033, 034" : "contoh: 004";
@@ -1493,7 +1494,7 @@ function hapusGrup() {
 const FITUR_INFO = {
   cekPoin:   { judul: "Cek poin", desc: "Kalau dimatikan, toko yang cek poin dapat pesan \"poin sedang dihitung\". Pakai saat poin sedang direkap." },
   klaim:     { judul: "Klaim hadiah", desc: "Kalau dimatikan, toko tidak bisa klaim hadiah (misalnya periode sudah tutup)." },
-  notifKeRE: { judul: "Notif klaim ke RE", desc: "Kirim WA ke RE pemilik TSUB setiap ada toko di wilayahnya yang klaim hadiah." },
+  notifKeRE: { judul: "Notif klaim ke RE", desc: "Kirim WA ke RE pemilik Territory Code setiap ada toko di wilayahnya yang klaim hadiah." },
 };
 async function loadSetting() {
   try { settings = await api("GET", "/api/settings"); } catch (e) { return showToast(e.message, false); }
