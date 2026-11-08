@@ -1500,6 +1500,26 @@ async function prosesAdmin(wa, teks) {
 const getKategori = () => (cfg().kategori || []).map(k => String(k.kode || "").toUpperCase()).filter(Boolean);
 const getLabelKategori = () => Object.fromEntries((cfg().kategori || []).map(k => [String(k.kode || "").toUpperCase(), k.label || ""]));
 
+// ── LIST berhalaman (biar pesan WA tidak kepanjangan) ──
+const PER_HALAMAN = 20;
+function listTokoBerhalaman(tokoArea, judul, halaman, perintahLanjut) {
+  const urut = [...tokoArea].sort((a, b) => b.poin - a.poin);
+  const totalHal = Math.max(1, Math.ceil(urut.length / PER_HALAMAN));
+  const h = Math.min(Math.max(1, halaman || 1), totalHal);
+  const awal = (h - 1) * PER_HALAMAN;
+  const aktif = urut.filter(t => t.poin > 0).length;
+  const list = urut.slice(awal, awal + PER_HALAMAN).map((t, i) =>
+    `${awal + i + 1}. *${t.nama || "(tanpa nama)"}* (${t.code}) — ⭐ ${fmt(t.poin)}` +
+    (t.kontributor ? `\n    📊 ${t.kontributor}` : "")
+  ).join("\n");
+  let msg = `📋 *${judul}*\n${urut.length} toko · ${aktif} punya poin · _urut poin terbesar_\n` +
+    `Halaman *${h}/${totalHal}*\n\n${list}`;
+  if (h < totalHal) msg += `\n\n➡️ Ketik *${perintahLanjut} ${h + 1}* untuk halaman berikutnya.`;
+  if (h > 1) msg += `${h < totalHal ? "\n" : "\n\n"}⬅️ *${perintahLanjut} ${h - 1}* untuk halaman sebelumnya.`;
+  return msg;
+}
+const angkaHalaman = v => (/^\d+$/.test(String(v || "")) ? parseInt(v) : null);
+
 function parseKontrib(str) {
   return str ? str.split(" - ").map(s => s.trim().toUpperCase()).filter(Boolean) : [];
 }
@@ -1536,14 +1556,16 @@ function buildRingkasanBody(tokoArea, labelAksi) {
     msg += `\n→ *Aksi:* Kunjungi & aktifkan pembelian`;
   }
 
-  msg += `\n\n📈 *Kategori aktif (${active.length} toko aktif):*\n`;
-  KATEGORI.forEach(k => {
+  // Analisa kategori hanya kalau kolom KONTRIBUTOR di Data Toko ada isinya
+  const adaKontrib = KATEGORI.length > 0 && tokoArea.some(t => String(t.kontributor || "").trim());
+  if (adaKontrib) msg += `\n\n📈 *Kategori aktif (${active.length} toko aktif):*\n`;
+  if (adaKontrib) KATEGORI.forEach(k => {
     const count = kategoriCount[k];
     const bar = "█".repeat(Math.round(count / Math.max(active.length, 1) * 8)).padEnd(8, "░");
     msg += `• ${k.padEnd(7)}: ${bar} ${count} toko\n`;
   });
 
-  const peluang = KATEGORI.filter(k => crossSell[k] > 0 && active.length > 0)
+  const peluang = !adaKontrib ? [] : KATEGORI.filter(k => crossSell[k] > 0 && active.length > 0)
     .sort((a, b) => crossSell[b] - crossSell[a]);
   if (peluang.length > 0) {
     msg += `\n🎯 *Peluang cross-sell:*\n`;
@@ -1552,7 +1574,7 @@ function buildRingkasanBody(tokoArea, labelAksi) {
     });
   }
 
-  const primaries = KATEGORI.filter(k => primaryCount[k] > 0)
+  const primaries = !adaKontrib ? [] : KATEGORI.filter(k => primaryCount[k] > 0)
     .sort((a, b) => primaryCount[b] - primaryCount[a]);
   if (primaries.length > 0) {
     msg += `\n🥇 *Poin terbesar dari:*\n`;
@@ -1561,9 +1583,10 @@ function buildRingkasanBody(tokoArea, labelAksi) {
     });
   }
 
-  msg += `\n💡 *Prioritas ${labelAksi}:*\n`;
+  msg += `${adaKontrib ? "" : "\n"}\n💡 *Prioritas ${labelAksi}:*\n`;
   let no = 1;
   if (inactive.length > 0) msg += `${no++}. Aktivasi ${inactive.length} toko yg belum transaksi\n`;
+  if (!adaKontrib && active.length > 0) msg += `${no++}. Pertahankan ${active.length} toko yang sudah punya poin\n`;
   if (peluang[0]) msg += `${no++}. Cross-sell ${peluang[0]}: ${crossSell[peluang[0]]} toko potensial\n`;
 
   return msg.trim();
@@ -1601,7 +1624,7 @@ function cariToko(query, db) {
 function formatDetailToko(toko) {
   const kontrib = toko.kontributor
     ? `\n\n📊 *Top Kontributor:*\n${toko.kontributor.split(" - ").map((k, i) => `${i+1}. ${k.trim()}`).join("\n")}`
-    : `\n\n📊 *Kontributor:* _Data belum tersedia_`;
+    : "";
   return (
     `📋 *Detail Toko*\n\n` +
     `🏪 Nama  : ${toko.nama}\n` +
@@ -1721,8 +1744,8 @@ async function prosesRE(wa, teks) {
 
   const menuRE = async () =>
     `📋 *Menu RE:*\n` +
-    `CEK [kode outlet] — detail toko + kontributor + progres program\n` +
-    `LIST — semua toko di territory (urut poin terbesar)\n` +
+    `CEK [kode outlet] — detail toko + progres program\n` +
+    `LIST — toko di territory (urut poin, 20 per halaman)\n` +
     `RINGKASAN — analisa kondisi & rekomendasi aksi` +
     menuProgramTim(await programTim());
 
@@ -1756,17 +1779,7 @@ async function prosesRE(wa, teks) {
   // LIST — daftar toko di area, urut poin terbanyak
   if (perintah === "LIST") {
     if (tokoArea.length === 0) return `Tidak ada toko di territory kamu.`;
-    const list = [...tokoArea]
-      .sort((a, b) => b.poin - a.poin)
-      .map((t, i) => {
-        const kontrib = t.kontributor ? `\n    📊 ${t.kontributor}` : "";
-        return `${i+1}. *${t.nama}* (${t.code})\n    ⭐ ${fmt(t.poin)} poin${kontrib}`;
-      }).join("\n\n");
-
-    return (
-      `📋 *Toko Territory Code ${tsubList.join("/")}* (${tokoArea.length} toko) _urut poin terbesar_\n` +
-      `\n${list}`
-    );
+    return listTokoBerhalaman(tokoArea, `Toko Territory Code ${tsubList.join("/")}`, angkaHalaman(parts[1]), "LIST");
   }
 
   // RINGKASAN — analisa kondisi territory + rekomendasi aksi
@@ -1806,8 +1819,8 @@ async function prosesSupervisor(wa, teks) {
 
   const menuSPV = async () =>
     `📋 *Menu Supervisor:*\n` +
-    `CEK [kode outlet] — detail toko + kontributor + progres program\n` +
-    `LIST — semua toko di area (urut poin terbesar)\n` +
+    `CEK [kode outlet] — detail toko + progres program\n` +
+    `LIST — toko di area (urut poin, 20 per halaman)\n` +
     `LIST RE — ranking performa RE\n` +
     `RINGKASAN — analisa kondisi & rekomendasi aksi` +
     menuProgramTim(await programTim());
@@ -1856,17 +1869,7 @@ async function prosesSupervisor(wa, teks) {
   // LIST — daftar toko di area, urut poin terbanyak
   if (perintah === "LIST") {
     if (tokoArea.length === 0) return `Tidak ada toko di area kamu.`;
-    const list = [...tokoArea]
-      .sort((a, b) => b.poin - a.poin)
-      .map((t, i) => {
-        const kontrib = t.kontributor ? `\n    📊 ${t.kontributor}` : "";
-        return `${i+1}. *${t.nama}* (${t.code})\n    ⭐ ${fmt(t.poin)} poin${kontrib}`;
-      }).join("\n\n");
-
-    return (
-      `📋 *Toko District Code ${dsubList.join("/")}* (${tokoArea.length} toko) _urut poin terbesar_\n` +
-      `\n${list}`
-    );
+    return listTokoBerhalaman(tokoArea, `Toko District Code ${dsubList.join("/")}`, angkaHalaman(parts[1]), "LIST");
   }
 
   // RINGKASAN — analisa kondisi area + ranking performa RE
@@ -1958,26 +1961,24 @@ async function prosesManajer(wa, teks) {
 
   // LIST [DSUB] — tanpa argumen: ranking semua DSUB. Dengan argumen: drill ke toko di DSUB itu
   if (perintah === "LIST") {
-    const dsubArg = parts.slice(1).join(" ").trim().toUpperCase().replace(/^(DSUB|DISTRICT(\s*CODE)?)\s*/, "");
+    // LIST → ranking district · LIST [District Code] [halaman] → toko di district itu
+    const argList = parts.slice(1);
+    const hal = argList.length > 1 ? angkaHalaman(argList[argList.length - 1]) : null;
+    if (hal) argList.pop();
+    const dsubArg = argList.join(" ").trim().toUpperCase().replace(/^(DSUB|DISTRICT(\s*CODE)?)\s*/, "");
 
     if (!dsubArg) {
       const ranking = rankingDSUB(tokoDB);
-      const list = ranking.map((d, i) =>
-        `${i+1}. *District Code ${d.dsub}*\n    ⭐ ${fmt(d.totalPoin)} poin | 🏪 ${d.aktif}/${d.totalToko} toko aktif`
-      ).join("\n\n");
-      return `🏆 *Ranking Performa District Code*\n_Ketik LIST [District Code] buat lihat toko di dalamnya_\n\n${list}`;
+      const list = ranking.slice(0, 30).map((d, i) =>
+        `${i+1}. *${d.dsub}* — ⭐ ${fmt(d.totalPoin)} | 🏪 ${d.aktif}/${d.totalToko} aktif`
+      ).join("\n");
+      const lebih = ranking.length > 30 ? `\n_...dan ${ranking.length - 30} District Code lainnya_` : "";
+      return `🏆 *Ranking Performa District Code*\n_Ketik LIST [District Code] buat lihat toko di dalamnya_\n\n${list}${lebih}`;
     }
 
-    const tokoArea = tokoDB.filter(t => String(t.dsub) === dsubArg);
+    const tokoArea = tokoDB.filter(t => String(t.dsub).toUpperCase() === dsubArg);
     if (tokoArea.length === 0) return `Tidak ada toko di District Code ${dsubArg}.`;
-    const list = [...tokoArea]
-      .sort((a, b) => b.poin - a.poin)
-      .map((t, i) => {
-        const kontrib = t.kontributor ? `\n    📊 ${t.kontributor}` : "";
-        return `${i+1}. *${t.nama}* (${t.code})\n    ⭐ ${fmt(t.poin)} poin${kontrib}`;
-      }).join("\n\n");
-
-    return `📋 *Toko District Code ${dsubArg}* (${tokoArea.length} toko) _urut poin terbesar_\n\n${list}`;
+    return listTokoBerhalaman(tokoArea, `Toko District Code ${dsubArg}`, hal, `LIST ${dsubArg}`);
   }
 
   // RINGKASAN — analisa global + ranking performa per DSUB
