@@ -39,6 +39,7 @@ function fmt(n) {
 const store = require("./lib/store");
 const pencapaian = require("./lib/pencapaian");
 const timProgram = require("./lib/timProgram");
+const gambarProgram = require("./lib/gambarProgram");
 const cfg = () => store.getConfig();
 const { render, normWa } = store;
 
@@ -1714,7 +1715,47 @@ async function perintahProgramTim(parts, tokoArea, opt) {
     if (d) { area = d.tokoArea; o = { ...opt, ...d }; }
   }
   const st = timProgram.statArea(x.program, x.tab, area, o.grupOf);
+  if (st && st.peserta) {
+    try {
+      const buf = await renderGambar(gambarProgram.htmlRekap(x.program, st, { area: o.area, peran: opt.peran, judulGrup: o.judulGrup }));
+      return { gambar: buf, caption: timProgram.teksSingkat(x.program, st, { area: o.area }) };
+    } catch (e) {
+      console.error("⚠️ Gagal buat gambar program, kirim teks:", e.message);
+    }
+  }
   return timProgram.teksDetail(x.program, st, { area: o.area, judulGrup: o.judulGrup });
+}
+
+// ── Gambar rekap program (browser terpisah dari WhatsApp, ditutup kalau 5 menit tidak dipakai) ──
+let browserGambar = null, timerTutupGambar = null, antrianGambar = Promise.resolve();
+const cacheGambar = new Map(); // hash HTML → { buf, at }
+
+async function browserUntukGambar() {
+  if (!browserGambar || !browserGambar.connected) {
+    browserGambar = await require("puppeteer").launch({
+      headless: true, executablePath: CHROMIUM_PATH,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--no-first-run"],
+    });
+  }
+  clearTimeout(timerTutupGambar);
+  timerTutupGambar = setTimeout(() => { browserGambar?.close().catch(() => {}); browserGambar = null; }, 5 * 60 * 1000);
+  return browserGambar;
+}
+
+function renderGambar(html) {
+  const key = require("crypto").createHash("sha1").update(html).digest("hex");
+  const c = cacheGambar.get(key);
+  if (c && Date.now() - c.at < CACHE_TTL_INFO) return Promise.resolve(c.buf);
+  // Antre satu-satu supaya server tidak berat kalau banyak yang minta bersamaan
+  const job = antrianGambar.then(async () => {
+    const b = await browserUntukGambar();
+    const buf = await withTimeout(gambarProgram.renderPng(b, html), 30000);
+    cacheGambar.set(key, { buf, at: Date.now() });
+    if (cacheGambar.size > 50) cacheGambar.delete(cacheGambar.keys().next().value);
+    return buf;
+  });
+  antrianGambar = job.catch(() => {});
+  return job;
 }
 
 async function cekTokoTim(toko) {
@@ -1758,7 +1799,7 @@ async function prosesRE(wa, teks) {
   }
 
   if (isPerintahProgram(perintah)) {
-    return perintahProgramTim(parts, tokoArea, { area: `Territory Code ${tsubList.join("/")}` });
+    return perintahProgramTim(parts, tokoArea, { area: `Territory Code ${tsubList.join("/")}`, peran: "RE" });
   }
 
   // CEK [kode/nama] — detail 1 toko
@@ -1837,8 +1878,8 @@ async function prosesSupervisor(wa, teks) {
     // Breakdown per RE (berdasarkan Territory Code toko)
     const reByTsub = new Map();
     reArea.forEach(r => (Array.isArray(r.tsub) ? r.tsub : [String(r.tsub)]).forEach(ts => reByTsub.set(String(ts), r.nama)));
-    const grupOf = t => reByTsub.has(String(t.tsub)) ? `${reByTsub.get(String(t.tsub))} (${t.tsub})` : `Territory Code ${t.tsub || "-"}`;
-    return perintahProgramTim(parts, tokoArea, { area: `District Code ${dsubList.join("/")}`, grupOf, judulGrup: "Per RE" });
+    const grupOf = t => reByTsub.has(String(t.tsub)) ? `${reByTsub.get(String(t.tsub))} (${t.tsub})` : `Territory ${t.tsub || "-"}`;
+    return perintahProgramTim(parts, tokoArea, { area: `District Code ${dsubList.join("/")}`, grupOf, judulGrup: "Per RE / Territory", peran: "Supervisor" });
   }
 
   // CEK [kode/nama] — detail 1 toko
@@ -1940,11 +1981,11 @@ async function prosesManajer(wa, teks) {
       if (!area.length) return `Tidak ada toko di District Code ${d}.`;
       return {
         tokoArea: area, area: `District Code ${d}`, judulGrup: "Per RE / Territory",
-        grupOf: t => reByTsub.has(String(t.tsub)) ? `${reByTsub.get(String(t.tsub))} (${t.tsub})` : `Territory Code ${t.tsub || "-"}`,
+        grupOf: t => reByTsub.has(String(t.tsub)) ? `${reByTsub.get(String(t.tsub))} (${t.tsub})` : `Territory ${t.tsub || "-"}`,
       };
     };
     return perintahProgramTim(parts, tokoDB, {
-      area: "Semua wilayah", grupOf: t => `District Code ${t.dsub || "-"}`, judulGrup: "Per District Code", drill,
+      area: "Semua wilayah", grupOf: t => `District Code ${t.dsub || "-"}`, judulGrup: "Per District Code", drill, peran: "Manajer",
     });
   }
 
@@ -2140,6 +2181,14 @@ client.on("message", async (msg) => {
               : prosesToko(wa, chatId, msg.body)
     );
     if (!balasan) return; // sudah dikirim langsung (mis. foto + caption)
+    if (typeof balasan === "object" && balasan.gambar) {
+      const media = new MessageMedia("image/png", balasan.gambar.toString("base64"), "rekap.png");
+      const cap = balasan.caption || "";
+      if (cap.length <= 1000) await msg.reply(media, undefined, { caption: cap });
+      else { await msg.reply(media); await msg.reply(cap); }
+      console.log(`🖼️ Reply gambar: ${cap.slice(0, 60).replace(/\n/g, " ")}...`);
+      return;
+    }
     await msg.reply(balasan);
     console.log(`📤 Reply: ${balasan.slice(0, 60).replace(/\n/g," ")}...`);
   } catch (err) {
