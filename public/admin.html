@@ -1069,8 +1069,8 @@ async function simpanUpload() {
   $("upSimpan").disabled = true; $("upSimpan").textContent = "Menyimpan...";
   try {
     const r = await api("POST", `/api/info/${infoData[upIndex].index}/upload?simpan=1`, upFileData);
-    tampilRingkasan(r.ringkasan, true);
-    showToast(`Data tersimpan: ${r.ringkasan.diperbarui + r.ringkasan.ditambah} toko`);
+    closeModal("modalUpload");
+    showToast(`✅ Data tersimpan: ${r.ringkasan.diperbarui} toko diperbarui, ${r.ringkasan.ditambah} ditambah`);
     loadInfo();
   } catch (e) { showToast(e.message, false); $("upSimpan").disabled = false; }
   finally { $("upSimpan").textContent = "Simpan ke Spreadsheet"; }
@@ -1118,8 +1118,8 @@ async function simpanUpToko() {
   $("utSimpan").disabled = true; $("utSimpan").textContent = "Menyimpan...";
   try {
     const r = await api("POST", "/api/toko/upload?simpan=1", utFileData);
-    tampilRingkasanToko(r.ringkasan, true);
-    showToast(`Data toko tersimpan: ${r.ringkasan.diperbarui} diperbarui, ${r.ringkasan.ditambah} baru`);
+    closeModal("modalUpToko");
+    showToast(`✅ Data toko tersimpan: ${r.ringkasan.diperbarui} diperbarui, ${r.ringkasan.ditambah} baru`);
     loadToko();
   } catch (e) { showToast(e.message, false); $("utSimpan").disabled = false; }
   finally { $("utSimpan").textContent = "Simpan ke Spreadsheet"; }
