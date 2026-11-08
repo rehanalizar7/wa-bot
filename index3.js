@@ -38,6 +38,7 @@ function fmt(n) {
 
 const store = require("./lib/store");
 const pencapaian = require("./lib/pencapaian");
+const timProgram = require("./lib/timProgram");
 const cfg = () => store.getConfig();
 const { render, normWa } = store;
 
@@ -1647,6 +1648,59 @@ function rankingDSUB(tokoDB) {
 }
 
 // ============================================================
+// PROGRAM UNTUK TIM (RE / Supervisor / Manajer)
+// ============================================================
+
+async function programTim() {
+  let programs = [];
+  try { programs = await getInfoProgram(); } catch { return []; }
+  const tabs = await Promise.all(programs.map(p => getTabProgram(p).catch(() => null)));
+  return programs.map((program, i) => ({ program, tab: tabs[i] }));
+}
+
+function menuProgramTim(list) {
+  if (!list.length) return "";
+  return `\n\n🎯 *Program berjalan:*\n` + list.map((x, i) => `${i + 1}. ${x.program.judul}`).join("\n") +
+    `\nPROGRAM — rekap semua program\nPROGRAM [nomor] — detail, mis. *PROGRAM 1*`;
+}
+
+const isPerintahProgram = p => /^PROGRAM\d*$/i.test(p);
+
+/**
+ * PROGRAM / PROGRAM [n] untuk tim.
+ * opt: { area, grupOf, judulGrup, drill(argTeks) → { tokoArea, area, grupOf, judulGrup } | string | null }
+ */
+async function perintahProgramTim(parts, tokoArea, opt) {
+  const list = await programTim();
+  if (!list.length) return `Belum ada program yang berjalan.`;
+  const m = parts[0].match(/^PROGRAM(\d+)$/i);
+  const nomor = m ? m[1] : parts[1];
+  const sisa = (m ? parts.slice(1) : parts.slice(2)).join(" ").trim();
+
+  if (!nomor) {
+    const baris = list.map((x, i) => timProgram.barisRingkas(i + 1, x.program, timProgram.statArea(x.program, x.tab, tokoArea)));
+    return `🎯 *Program Berjalan — ${opt.area}*\n\n${baris.join("\n\n")}\n\nKetik *PROGRAM [nomor]* untuk detail.`;
+  }
+  const x = list[parseInt(nomor) - 1];
+  if (!/^\d+$/.test(nomor) || !x) return `❌ Program nomor *${nomor}* tidak ada. Pilih 1–${list.length}.\n\n` + list.map((y, i) => `${i + 1}. ${y.program.judul}`).join("\n");
+
+  let area = tokoArea, o = opt;
+  if (sisa && opt.drill) {
+    const d = opt.drill(sisa);
+    if (typeof d === "string") return d;
+    if (d) { area = d.tokoArea; o = { ...opt, ...d }; }
+  }
+  const st = timProgram.statArea(x.program, x.tab, area, o.grupOf);
+  return timProgram.teksDetail(x.program, st, { area: o.area, judulGrup: o.judulGrup });
+}
+
+async function cekTokoTim(toko) {
+  const list = await programTim();
+  const baris = list.map(x => timProgram.barisToko(x.program, x.tab, toko)).filter(Boolean);
+  return formatDetailToko(toko) + (baris.length ? `\n\n🎯 *Program:*\n${baris.join("\n")}` : "");
+}
+
+// ============================================================
 // LOGIKA BOT RE (SALES)
 // ============================================================
 
@@ -1665,16 +1719,23 @@ async function prosesRE(wa, teks) {
   const tsubList = Array.isArray(re.tsub) ? re.tsub : [String(re.tsub)];
   const tokoArea = tokoDB.filter(t => tsubList.includes(String(t.tsub)));
 
+  const menuRE = async () =>
+    `📋 *Menu RE:*\n` +
+    `CEK [kode outlet] — detail toko + kontributor + progres program\n` +
+    `LIST — semua toko di territory (urut poin terbesar)\n` +
+    `RINGKASAN — analisa kondisi & rekomendasi aksi` +
+    menuProgramTim(await programTim());
+
   if (["HALO", "MENU", "HI", "HELLO", "HAI", "0"].includes(inp) || inp === "") {
     return (
       `Halo *${re.nama}*! 👋\n` +
       `Territory Code: *${tsubList.join(", ")}*\n` +
-      `Total toko: *${tokoArea.length}*\n\n` +
-      `📋 *Menu RE:*\n` +
-      `CEK [kode outlet] — detail toko + kontributor\n` +
-      `LIST — semua toko di territory kamu\n` +
-      `LIST POIN — urut dari poin terbesar`
+      `Total toko: *${tokoArea.length}*\n\n` + await menuRE()
     );
+  }
+
+  if (isPerintahProgram(perintah)) {
+    return perintahProgramTim(parts, tokoArea, { area: `Territory Code ${tsubList.join("/")}` });
   }
 
   // CEK [kode/nama] — detail 1 toko
@@ -1689,7 +1750,7 @@ async function prosesRE(wa, teks) {
       return `❌ Toko *${query}* tidak ditemukan di territory kamu.`;
     }
     if (hasil.list) return formatListCari(hasil, query);
-    return formatDetailToko(hasil.toko);
+    return cekTokoTim(hasil.toko);
   }
 
   // LIST — daftar toko di area, urut poin terbanyak
@@ -1715,12 +1776,7 @@ async function prosesRE(wa, teks) {
   }
 
   if (isAITester(wa)) return callGemini(buildPromptRE(re, tokoArea), teks);
-  return (
-    `📋 *Menu RE:*\n` +
-    `CEK [kode outlet] — detail toko + kontributor\n` +
-    `LIST — semua toko di territory (urut poin terbesar)\n` +
-    `RINGKASAN — analisa kondisi & rekomendasi aksi`
-  );
+  return menuRE();
 }
 
 // ============================================================
@@ -1748,17 +1804,28 @@ async function prosesSupervisor(wa, teks) {
     return tsubR.some(ts => tsubArea.has(String(ts)));
   });
 
+  const menuSPV = async () =>
+    `📋 *Menu Supervisor:*\n` +
+    `CEK [kode outlet] — detail toko + kontributor + progres program\n` +
+    `LIST — semua toko di area (urut poin terbesar)\n` +
+    `LIST RE — ranking performa RE\n` +
+    `RINGKASAN — analisa kondisi & rekomendasi aksi` +
+    menuProgramTim(await programTim());
+
   if (["HALO", "MENU", "HI", "HELLO", "HAI", "0"].includes(inp) || inp === "") {
     return (
       `Halo *${spv.nama}*! 👋\n` +
       `District Code: *${dsubList.join(", ")}*\n` +
-      `Total toko: *${tokoArea.length}* | Total RE: *${reArea.length}*\n\n` +
-      `📋 *Menu Supervisor:*\n` +
-      `CEK [kode outlet] — detail toko + kontributor\n` +
-      `LIST — semua toko di area kamu (urut poin terbesar)\n` +
-      `LIST RE — ranking performa RE di bawah kamu\n` +
-      `RINGKASAN — analisa kondisi & rekomendasi aksi`
+      `Total toko: *${tokoArea.length}* | Total RE: *${reArea.length}*\n\n` + await menuSPV()
     );
+  }
+
+  if (isPerintahProgram(perintah)) {
+    // Breakdown per RE (berdasarkan Territory Code toko)
+    const reByTsub = new Map();
+    reArea.forEach(r => (Array.isArray(r.tsub) ? r.tsub : [String(r.tsub)]).forEach(ts => reByTsub.set(String(ts), r.nama)));
+    const grupOf = t => reByTsub.has(String(t.tsub)) ? `${reByTsub.get(String(t.tsub))} (${t.tsub})` : `Territory Code ${t.tsub || "-"}`;
+    return perintahProgramTim(parts, tokoArea, { area: `District Code ${dsubList.join("/")}`, grupOf, judulGrup: "Per RE" });
   }
 
   // CEK [kode/nama] — detail 1 toko
@@ -1773,7 +1840,7 @@ async function prosesSupervisor(wa, teks) {
       return `❌ Toko *${query}* tidak ditemukan di area kamu.`;
     }
     if (hasil.list) return formatListCari(hasil, query);
-    return formatDetailToko(hasil.toko);
+    return cekTokoTim(hasil.toko);
   }
 
   // LIST RE — ranking performa RE di bawah area Supervisor
@@ -1827,13 +1894,7 @@ async function prosesSupervisor(wa, teks) {
     const ranking = rankingRE(reArea, tokoArea);
     return callGemini(buildPromptSPV(spv, dsubList, tokoArea, reArea, ranking), teks);
   }
-  return (
-    `📋 *Menu Supervisor:*\n` +
-    `CEK [kode outlet] — detail toko + kontributor\n` +
-    `LIST — semua toko di area (urut poin terbesar)\n` +
-    `LIST RE — ranking performa RE\n` +
-    `RINGKASAN — analisa kondisi & rekomendasi aksi`
-  );
+  return menuSPV();
 }
 
 // ============================================================
@@ -1850,17 +1911,38 @@ async function prosesManajer(wa, teks) {
   try { tokoDB = await getTokoDB(); }
   catch { return render("gangguan"); }
 
+  const menuMgr = async () =>
+    `📋 *Menu Manajer:*\n` +
+    `CEK [kode outlet] — detail toko + progres program (semua wilayah)\n` +
+    `LIST — ranking performa per District Code\n` +
+    `LIST [District Code] — toko di District Code tertentu (urut poin terbesar)\n` +
+    `RINGKASAN — analisa global & ranking District Code` +
+    menuProgramTim(await programTim()) +
+    `\nPROGRAM [nomor] [District Code] — detail 1 district`;
+
   if (["HALO", "MENU", "HI", "HELLO", "HAI", "0"].includes(inp) || inp === "") {
     return (
       `Halo *${mgr.nama}*! 👋\n` +
       `Scope: *Semua wilayah*\n` +
-      `Total toko: *${tokoDB.length}*\n\n` +
-      `📋 *Menu Manajer:*\n` +
-      `CEK [kode outlet] — detail toko (semua wilayah)\n` +
-      `LIST — ranking performa per District Code\n` +
-      `LIST [District Code] — toko di District Code tertentu (urut poin terbesar)\n` +
-      `RINGKASAN — analisa global & ranking District Code`
+      `Total toko: *${tokoDB.length}*\n\n` + await menuMgr()
     );
+  }
+
+  if (isPerintahProgram(perintah)) {
+    const reByTsub = new Map();
+    loadRE().forEach(r => (Array.isArray(r.tsub) ? r.tsub : [String(r.tsub)]).forEach(ts => reByTsub.set(String(ts), r.nama)));
+    const drill = arg => {
+      const d = arg.toUpperCase().replace(/^(DSUB|DISTRICT(\s*CODE)?)\s*/, "").trim();
+      const area = tokoDB.filter(t => String(t.dsub).toUpperCase() === d);
+      if (!area.length) return `Tidak ada toko di District Code ${d}.`;
+      return {
+        tokoArea: area, area: `District Code ${d}`, judulGrup: "Per RE / Territory",
+        grupOf: t => reByTsub.has(String(t.tsub)) ? `${reByTsub.get(String(t.tsub))} (${t.tsub})` : `Territory Code ${t.tsub || "-"}`,
+      };
+    };
+    return perintahProgramTim(parts, tokoDB, {
+      area: "Semua wilayah", grupOf: t => `District Code ${t.dsub || "-"}`, judulGrup: "Per District Code", drill,
+    });
   }
 
   // CEK [kode/nama] — detail 1 toko, scope global (semua wilayah)
@@ -1871,7 +1953,7 @@ async function prosesManajer(wa, teks) {
     const hasil = cariToko(query, tokoDB);
     if (!hasil) return `❌ Toko *${query}* tidak ditemukan.`;
     if (hasil.list) return formatListCari(hasil, query);
-    return formatDetailToko(hasil.toko);
+    return cekTokoTim(hasil.toko);
   }
 
   // LIST [DSUB] — tanpa argumen: ranking semua DSUB. Dengan argumen: drill ke toko di DSUB itu
@@ -1921,13 +2003,7 @@ async function prosesManajer(wa, teks) {
     const ranking = rankingDSUB(tokoDB);
     return callGemini(buildPromptManajer(mgr, tokoDB, ranking), teks);
   }
-  return (
-    `📋 *Menu Manajer:*\n` +
-    `CEK [kode outlet] — detail toko (semua wilayah)\n` +
-    `LIST — ranking performa per District Code\n` +
-    `LIST [District Code] — toko di District Code tertentu (urut poin terbesar)\n` +
-    `RINGKASAN — analisa global & ranking District Code`
-  );
+  return menuMgr();
 }
 
 // ============================================================
