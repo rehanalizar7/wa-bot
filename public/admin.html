@@ -103,9 +103,13 @@
   <!-- ===================== TOKO ===================== -->
   <section id="tab-toko" class="tab-content">
     <div class="flex flex-col gap-3 mb-4">
-      <div class="flex items-center justify-between">
-        <h2 class="text-xl font-bold text-gray-700">Data Toko</h2>
-        <button onclick="openTambahToko()" class="btn btn-pri">+ Tambah Toko</button>
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-xl font-bold text-gray-700 whitespace-nowrap">Data Toko</h2>
+        <div class="flex flex-wrap gap-2">
+          <button onclick="downloadTemplateToko()" class="btn btn-sec">⬇️ Template</button>
+          <button onclick="openUploadToko()" class="btn btn-sec">⬆️ Upload Data Toko</button>
+          <button onclick="openTambahToko()" class="btn btn-pri">+ Tambah Toko</button>
+        </div>
       </div>
       <div class="flex flex-wrap gap-2">
         <input id="searchToko" oninput="filterToko()" type="text" placeholder="Cari nama / kode / WA..." class="inp !mt-0 flex-1 min-w-40">
@@ -406,17 +410,13 @@
       <div><label class="lbl">Mekanisme <span class="text-gray-400 font-normal">(opsional — cara ikut, syarat, hadiahnya)</span></label><textarea id="infoMekanisme" rows="4" class="inp" oninput="previewInfo()" placeholder="1. Belanja minimal 10 slop&#10;2. Cashback dihitung akhir bulan"></textarea></div>
       <div><label class="lbl">Link Gambar <span class="text-gray-400 font-normal">(opsional)</span></label><input id="infoGambar" class="inp" placeholder="https://..."></div>
       <div class="border border-gray-200 rounded-lg p-3">
-        <div class="lbl">📊 Pencapaian per toko <span class="text-gray-400 font-normal">(opsional)</span></div>
-        <p class="hint mb-2">Isi kalau program ini punya target. Target per brand & realisasi tiap toko diisi di tab <b>Pencapaian_Program</b> pada spreadsheet. Satuan: <b>pack</b>.</p>
-        <div class="grid grid-cols-2 gap-3">
-          <div><label class="lbl">Kode program</label><input id="infoKode" class="inp uppercase" oninput="previewInfo()" placeholder="PNM"></div>
-          <div><label class="lbl">Target total <span class="text-gray-400 font-normal">(pack, opsional)</span></label><input id="infoTarget" class="inp" inputmode="decimal" oninput="previewInfo()" placeholder="75"></div>
-        </div>
-        <div class="hint mt-2 space-y-1">
-          <div>• <b>Kode program</b> = isi kolom A di tab Pencapaian_Program. Kosong → pakai judul.</div>
-          <div>• <b>Target total</b> = minimal total pack (mis. "75 pack campur"). Kalau ada target per brand, total = yang lebih besar dari jumlah target brand atau angka ini.</div>
-          <div>• Target per brand untuk semua toko: isi baris dengan KODE_TOKO = <b>SEMUA</b>.</div>
-        </div>
+        <div class="lbl">📊 Target <span class="text-gray-400 font-normal">(opsional, satuan pack)</span></div>
+        <p class="hint mb-2">Disimpan sebagai tab sendiri di spreadsheet dengan nama = judul program. Tier & realisasi tiap toko diisi di tab itu.</p>
+        <label class="flex items-center gap-2 text-sm text-gray-700 mb-2"><input type="checkbox" id="infoPakaiTier" onchange="toggleTier(this.checked)"> Pakai tier / klusterisasi <span class="text-gray-400">(target beda per kelompok toko)</span></label>
+        <div id="infoTierBox"></div>
+        <div id="infoBrandList" class="mt-3"></div>
+        <button type="button" onclick="tambahBrand()" class="mt-2 text-xs border border-blue-400 text-blue-600 px-3 py-1.5 rounded-lg hover:bg-blue-50">+ Tambah brand</button>
+        <p class="hint mt-2">Centang <b>Opsional</b> kalau brand itu tidak wajib dipenuhi — realisasinya tetap ikut dihitung ke total. Total yang harus dicapai = yang lebih besar dari jumlah target brand wajib atau target total.</p>
       </div>
       <div><div class="lbl mb-1">Tampilan di WhatsApp:</div><div id="infoPreview" class="wa-bubble"></div></div>
     </div>
@@ -436,6 +436,40 @@
     </div>
     <p id="capaiInfo" class="hint mb-3"></p>
     <div id="capaiIsi"></div>
+  </div>
+</div>
+
+<!-- ===================== MODAL: UPLOAD DATA HO ===================== -->
+<div id="modalUpload" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 hidden px-4">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-xl p-6 max-h-screen overflow-y-auto">
+    <div class="flex items-start justify-between gap-3 mb-1">
+      <h3 id="upJudul" class="text-lg font-bold text-gray-800">Upload Data HO</h3>
+      <button onclick="closeModal('modalUpload')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+    </div>
+    <p class="hint mb-3">Pilih file Excel (.xlsx / .xls) atau .csv. Kolom dicocokkan berdasarkan <b>nama header</b> (KODE_TOKO, TIER, nama brand, KETERANGAN). Sel kosong tidak mengubah data lama. Belum punya format? Klik <a href="#" onclick="downloadTemplate(upIndex);return false" class="text-blue-600 underline">Download Template</a>.</p>
+    <input type="file" id="upFile" accept=".xlsx,.xls,.csv" class="block w-full text-sm text-gray-700 border border-gray-300 rounded-lg p-2" onchange="pratinjauUpload()">
+    <div id="upHasil" class="mt-4"></div>
+    <div class="flex gap-3 mt-5">
+      <button onclick="closeModal('modalUpload')" class="flex-1 btn btn-sec">Batal</button>
+      <button id="upSimpan" onclick="simpanUpload()" class="flex-1 btn btn-pri" disabled>Simpan ke Spreadsheet</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MODAL: UPLOAD DATA TOKO ===================== -->
+<div id="modalUpToko" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 hidden px-4">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-xl p-6 max-h-screen overflow-y-auto">
+    <div class="flex items-start justify-between gap-3 mb-1">
+      <h3 class="text-lg font-bold text-gray-800">⬆️ Upload Data Toko</h3>
+      <button onclick="closeModal('modalUpToko')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+    </div>
+    <p class="hint mb-3">Pilih file Excel (.xlsx / .xls) atau .csv berkolom <b>KODE_TOKO, NAMA_TOKO, PIC_TOKO, WA, DSUB, TSUB</b>. Kode yang sudah ada diperbarui, kode baru ditambahkan. Sel kosong tidak mengubah data lama. POIN tidak diubah dan toko tidak dihapus lewat upload. Belum punya format? Klik <a href="#" onclick="downloadTemplateToko();return false" class="text-blue-600 underline">Download Template</a>.</p>
+    <input type="file" id="utFile" accept=".xlsx,.xls,.csv" class="block w-full text-sm text-gray-700 border border-gray-300 rounded-lg p-2" onchange="pratinjauUpToko()">
+    <div id="utHasil" class="mt-4"></div>
+    <div class="flex gap-3 mt-5">
+      <button onclick="closeModal('modalUpToko')" class="flex-1 btn btn-sec">Batal</button>
+      <button id="utSimpan" onclick="simpanUpToko()" class="flex-1 btn btn-pri" disabled>Simpan ke Spreadsheet</button>
+    </div>
   </div>
 </div>
 
@@ -795,29 +829,52 @@ function hapusHadiah(i) {
 }
 
 // ============================================================ INFO PROGRAM
+let infoSheetUrl = "";
+let tgt = { pakaiTier: false, tiers: [{ nama: "", total: "" }], brands: [] };
+const kosong = v => v === null || v === undefined || String(v).trim() === "";
 function teksInfoWa(x) {
   const bagian = [`📢 *${x.judul}*` + (x.periode ? `\n🗓️ Periode: ${x.periode}` : "")];
   if (x.deskripsi) bagian.push(x.deskripsi);
   if (x.mekanisme) bagian.push(`📋 *Mekanisme:*\n${x.mekanisme}`);
-  if (x.kode || String(x.target ?? "") !== "") {
-    const t = String(x.target ?? "") !== "" ? `${x.target} pack` : "per brand (dari tab Pencapaian_Program)";
-    bagian.push(`📊 *Pencapaian <nama toko>*\n🎯 Target total: ${t}\n📈 Realisasi per brand: _diambil dari tab Pencapaian_Program_`);
+  const tiers = x.tiers && x.tiers.length ? x.tiers : [{ nama: "", total: null }];
+  const brands = (x.brands || []).filter(b => String(b.brand || "").trim());
+  if (brands.length || x.pakaiTier || tiers.some(t => !kosong(t.total))) {
+    // Contoh tampilan memakai tier pertama
+    const t0 = tiers[0];
+    let t = `📊 *Pencapaian <nama toko>*` + (x.pakaiTier && t0.nama ? ` — *${t0.nama}*` : "");
+    if (brands.length) t += "\n" + brands.map(b => `• *${b.brand}*${b.opsional ? " _(opsional)_" : ""}: … / ${kosong(b.target?.[0]) ? "-" : b.target[0]} pack`).join("\n");
+    const wajib = brands.filter(b => !b.opsional).reduce((s, b) => s + (Number(b.target?.[0]) || 0), 0);
+    const total = Math.max(wajib, Number(t0.total) || 0);
+    if (total) t += `\n━━━━━━━━━━\n*Total: … / ${total} pack*`;
+    bagian.push(t);
   }
   return bagian.join("\n\n");
 }
+function ringkasTarget(x) {
+  if (!x.tab) return "";
+  const brands = x.brands.map(b => esc(b.brand) + (b.opsional ? ' <span class="text-gray-400">(opsional)</span>' : "")).join(", ");
+  const tiers = x.pakaiTier ? x.tiers.map(t => `<b>${esc(t.nama)}</b>${kosong(t.total) ? "" : " " + esc(t.total)}`).join(" · ") : "";
+  return `<div class="text-xs text-gray-500 mt-2">${tiers ? `Tier: ${tiers}<br>` : ""}${brands ? `Brand: ${brands}` : ""}</div>`;
+}
 async function loadInfo() {
   $("infoGrid").innerHTML = '<div class="card p-6 text-center text-gray-400 col-span-full">Memuat...</div>';
-  try { infoData = await api("GET", "/api/info"); }
+  try { const r = await api("GET", "/api/info"); infoData = r.data; infoSheetUrl = r.spreadsheetUrl; }
   catch (e) { $("infoGrid").innerHTML = `<div class="card p-6 text-center text-red-500 col-span-full">${esc(e.message)}</div>`; return; }
   if (!infoData.length) { $("infoGrid").innerHTML = '<div class="card p-6 text-center text-gray-400 col-span-full">Belum ada info program. Toko akan dapat pesan "Belum ada info program saat ini".</div>'; return; }
   $("infoGrid").innerHTML = infoData.map((x, i) => {
-    const pakaiTarget = x.kode || String(x.target ?? "") !== "";
+    const pakaiTarget = !!x.tab;
+    const linkTab = x.tab ? `<a href="${esc(infoSheetUrl)}#gid=${x.gid}" target="_blank" class="text-blue-600 underline">tab "${esc(x.tab)}"</a>` : "";
     return `
     <div class="card p-4">
-      <div class="text-xs text-gray-400 mb-2">Nomor ${i + 1} di daftar WA${x.kode ? ` · kode <b class="text-gray-600">${esc(x.kode)}</b>` : ""}</div>
+      <div class="text-xs text-gray-400 mb-2">Nomor ${i + 1} di daftar WA${linkTab ? ` · ${linkTab}` : ""}${x.tab ? ` · ${x.jumlahTokoTerisi || 0} toko sudah ada realisasi` : ""}</div>
       ${/^https?:\/\//.test(x.gambar) ? `<img src="${esc(x.gambar)}" class="w-full h-36 object-cover rounded-lg mb-3" onerror="this.style.display='none'">` : ""}
       <div class="wa-bubble">${waFormat(teksInfoWa(x))}</div>
-      <div class="flex gap-2 mt-3">
+      ${ringkasTarget(x)}
+      ${x.tab ? `<div class="flex gap-2 mt-3">
+        <button onclick="downloadTemplate(${i})" class="flex-1 text-xs border border-gray-300 text-gray-700 py-1.5 rounded-lg hover:bg-gray-50">⬇️ Download Template</button>
+        <button onclick="openUpload(${i})" class="flex-1 text-xs border border-purple-400 text-purple-700 py-1.5 rounded-lg hover:bg-purple-50">⬆️ Upload Data HO</button>
+      </div>` : ""}
+      <div class="flex gap-2 mt-2">
         ${pakaiTarget ? `<button onclick="lihatPencapaian(${i})" class="flex-1 text-xs border border-green-500 text-green-700 py-1.5 rounded-lg hover:bg-green-50">📊 Pencapaian</button>` : ""}
         <button onclick="openInfo(${i})" class="flex-1 text-xs border border-blue-400 text-blue-600 py-1.5 rounded-lg hover:bg-blue-50">Edit</button>
         <button onclick="hapusInfo(${i})" class="flex-1 text-xs border border-red-400 text-red-500 py-1.5 rounded-lg hover:bg-red-50">Hapus</button>
@@ -825,11 +882,85 @@ async function loadInfo() {
     </div>`;
   }).join("");
 }
-const INFO_FIELD = { judul: "infoJudulInp", periode: "infoPeriode", deskripsi: "infoDeskripsi", mekanisme: "infoMekanisme", gambar: "infoGambar", kode: "infoKode", target: "infoTarget" };
+const INFO_FIELD = { judul: "infoJudulInp", periode: "infoPeriode", deskripsi: "infoDeskripsi", mekanisme: "infoMekanisme", gambar: "infoGambar" };
+// Lebar kolom diatur lewat style inline: class .inp punya width:100% yang mengalahkan class lebar Tailwind.
+const gayaAngka = "width:5.5rem;min-width:5.5rem";
+function renderTarget() {
+  $("infoPakaiTier").checked = tgt.pakaiTier;
+  const n = tgt.tiers.length;
+  // Tier (atau 1 target total kalau tanpa tier)
+  $("infoTierBox").innerHTML = tgt.pakaiTier ? `
+    <div class="text-xs text-gray-500 mb-1">Tier & target total minimal (pack)</div>
+    <div class="space-y-2">${tgt.tiers.map((t, i) => `
+      <div class="flex gap-2 items-center">
+        <input class="inp !mt-0" style="flex:1 1 auto;width:auto;min-width:0" placeholder="mis. Tier ${i + 1}" value="${esc(t.nama)}" oninput="tgt.tiers[${i}].nama=this.value;gambarHeaderTier();previewInfo()">
+        <input class="inp !mt-0" style="${gayaAngka}" inputmode="decimal" placeholder="600" value="${esc(t.total ?? "")}" oninput="tgt.tiers[${i}].total=this.value;previewInfo()">
+        <button type="button" onclick="hapusTier(${i})" class="text-red-500 hover:bg-red-50 rounded-lg py-1" style="width:2rem" title="Hapus tier" ${n <= 1 ? "disabled" : ""}>✕</button>
+      </div>`).join("")}</div>
+    <button type="button" onclick="tambahTier()" class="mt-2 text-xs border border-blue-400 text-blue-600 px-3 py-1.5 rounded-lg hover:bg-blue-50">+ Tambah tier</button>` : `
+    <div><label class="lbl">Target total minimal <span class="text-gray-400 font-normal">(pack, opsional)</span></label>
+    <input class="inp" inputmode="decimal" placeholder='mis. 75 untuk "75 pack campur"' value="${esc(tgt.tiers[0].total ?? "")}" oninput="tgt.tiers[0].total=this.value;previewInfo()"></div>`;
+
+  // Tabel brand × tier
+  if (!tgt.brands.length) {
+    $("infoBrandList").innerHTML = '<div class="text-xs text-gray-400">Belum ada brand. Klik "+ Tambah brand" untuk menambah target per brand.</div>';
+    return;
+  }
+  $("infoBrandList").innerHTML = (tgt.tiers.length > 1 ? '<div class="text-xs text-gray-400 sm:hidden mb-1">↔ Geser tabel ke kanan untuk mengisi tier lainnya</div>' : "") +
+    `<div class="overflow-x-auto"><table class="text-sm" style="border-collapse:separate;border-spacing:0 .4rem">
+    <thead><tr class="text-xs text-gray-500 text-left">
+      <th class="font-normal pr-2" style="min-width:9rem">Nama brand</th>
+      <th class="font-normal pr-2 text-center">Opsional</th>
+      ${tgt.tiers.map((t, i) => `<th class="font-normal pr-2" data-tier-head="${i}">${tgt.pakaiTier ? esc(t.nama || "Tier " + (i + 1)) : "Target"}</th>`).join("")}
+      <th></th>
+    </tr></thead>
+    <tbody>${tgt.brands.map((b, i) => `<tr>
+      <td class="pr-2"><input class="inp !mt-0" style="width:100%;min-width:9rem" placeholder="mis. Samsu 12" value="${esc(b.brand)}" oninput="tgt.brands[${i}].brand=this.value;previewInfo()"></td>
+      <td class="pr-2 text-center"><input type="checkbox" class="w-4 h-4" ${b.opsional ? "checked" : ""} onchange="tgt.brands[${i}].opsional=this.checked;previewInfo()" title="Brand ini tidak wajib dipenuhi"></td>
+      ${tgt.tiers.map((t, j) => `<td class="pr-2"><input class="inp !mt-0" style="${gayaAngka}" inputmode="decimal" placeholder="0" value="${esc(b.target[j] ?? "")}" oninput="tgt.brands[${i}].target[${j}]=this.value;previewInfo()"></td>`).join("")}
+      <td><button type="button" onclick="hapusBrand(${i})" class="text-red-500 hover:bg-red-50 rounded-lg px-2 py-1" title="Hapus brand">✕</button></td>
+    </tr>`).join("")}</tbody></table></div>`;
+}
+// Ganti teks judul kolom tier tanpa render ulang (supaya kursor tidak lompat saat mengetik)
+function gambarHeaderTier() {
+  document.querySelectorAll("[data-tier-head]").forEach(th => {
+    const i = +th.dataset.tierHead; th.textContent = tgt.tiers[i]?.nama || "Tier " + (i + 1);
+  });
+}
+function toggleTier(on) {
+  tgt.pakaiTier = on;
+  if (on && tgt.tiers.length === 1 && !tgt.tiers[0].nama) tgt.tiers[0].nama = "Tier 1";
+  if (!on) {
+    // Tanpa tier: pakai tier pertama saja
+    tgt.tiers = [{ nama: "", total: tgt.tiers[0]?.total ?? "" }];
+    tgt.brands.forEach(b => b.target = [b.target[0] ?? ""]);
+  }
+  renderTarget(); previewInfo();
+}
+function tambahTier() {
+  tgt.tiers.push({ nama: "Tier " + (tgt.tiers.length + 1), total: "" });
+  tgt.brands.forEach(b => b.target.push(""));
+  renderTarget(); previewInfo();
+}
+function hapusTier(i) {
+  if (tgt.tiers.length <= 1) return;
+  tgt.tiers.splice(i, 1); tgt.brands.forEach(b => b.target.splice(i, 1));
+  renderTarget(); previewInfo();
+}
+function tambahBrand() {
+  tgt.brands.push({ brand: "", opsional: false, target: tgt.tiers.map(() => "") });
+  renderTarget(); previewInfo();
+  const baris = $("infoBrandList").querySelectorAll("tbody tr");
+  baris[baris.length - 1]?.querySelector("input")?.focus();
+}
+function hapusBrand(i) { tgt.brands.splice(i, 1); renderTarget(); previewInfo(); }
 function formInfo() {
   const b = {};
   for (const [k, id] of Object.entries(INFO_FIELD)) b[k] = $(id).value.trim();
-  b.kode = b.kode.toUpperCase();
+  b.pakaiTier = tgt.pakaiTier;
+  b.tiers = tgt.tiers.map(t => ({ nama: String(t.nama || "").trim(), total: String(t.total ?? "").trim() }));
+  b.brands = tgt.brands.map(x => ({ brand: String(x.brand || "").trim(), opsional: !!x.opsional, target: x.target.map(v => String(v ?? "").trim()) }))
+    .filter(x => x.brand || x.target.some(v => v));
   return b;
 }
 function previewInfo() { $("infoPreview").innerHTML = waFormat(teksInfoWa(formInfo())); }
@@ -838,20 +969,154 @@ function openInfo(i) {
   $("modalInfoJudul").textContent = x ? "Edit Info Program" : "Tambah Info Program";
   $("infoIndex").value = x ? x.index : "";
   for (const [k, id] of Object.entries(INFO_FIELD)) $(id).value = x ? String(x[k] ?? "") : "";
-  previewInfo(); openModal("modalInfo");
+  tgt = x && x.tab
+    ? { pakaiTier: x.pakaiTier, tiers: x.tiers.map(t => ({ nama: t.nama, total: t.total ?? "" })),
+        brands: x.brands.map(b => ({ brand: b.brand, opsional: b.opsional, target: b.target.map(v => v ?? "") })) }
+    : { pakaiTier: false, tiers: [{ nama: "", total: "" }], brands: [] };
+  renderTarget(); previewInfo(); openModal("modalInfo");
 }
 async function submitInfo() {
   const index = $("infoIndex").value;
   const body = formInfo();
   if (!body.judul || !body.deskripsi) return showToast("Judul dan isi wajib diisi", false);
-  const ok = await aksi(() => index ? api("PUT", "/api/info/" + index, body) : api("POST", "/api/info", body), "Info program tersimpan!");
-  if (ok) { closeModal("modalInfo"); loadInfo(); }
+  if (body.brands.some(b => !b.brand)) return showToast("Nama brand tidak boleh kosong", false);
+  const r = await aksi(() => index ? api("PUT", "/api/info/" + index, body) : api("POST", "/api/info", body));
+  if (r) {
+    showToast(r.tab ? `Tersimpan! Tab "${r.tab}" di spreadsheet sudah diperbarui.` : "Info program tersimpan!");
+    closeModal("modalInfo"); loadInfo();
+  }
 }
 function hapusInfo(i) {
   const x = infoData[i];
-  konfirmasi({ judul: "Hapus info?", pesan: `"${x.judul}" akan dihapus.`, tombol: "Hapus", ikon: "🗑️" }, async () => {
+  konfirmasi({ judul: "Hapus info?", pesan: `"${x.judul}" akan dihapus dari daftar program.` + (x.tab ? ` Tab "${x.tab}" di spreadsheet TIDAK ikut dihapus (data realisasi tetap aman).` : ""), tombol: "Hapus", ikon: "🗑️" }, async () => {
     if (await aksi(() => api("DELETE", "/api/info/" + x.index), "Info dihapus")) loadInfo();
   });
+}
+// ── Template & upload data HO ──
+async function downloadTemplate(i) { return unduhFile(`/api/info/${infoData[i].index}/template`); }
+function downloadTemplateToko() { return unduhFile("/api/toko/template"); }
+async function unduhFile(url) {
+  showToast("Menyiapkan template...");
+  try {
+    const r = await fetch(url, { headers: { "Authorization": sessionToken } });
+    if (r.status === 401) { pindahKeLogin(); return; }
+    if (!r.ok) { let d = {}; try { d = await r.json(); } catch {} throw new Error(d.error || `Gagal (${r.status})`); }
+    const blob = await r.blob();
+    const nama = (r.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || "Template.xlsx";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = nama;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  } catch (e) { showToast(e.message, false); }
+}
+let upIndex = null, upFileData = null;
+function openUpload(i) {
+  upIndex = i; upFileData = null;
+  $("upJudul").textContent = `⬆️ Upload Data HO — ${infoData[i].judul}`;
+  $("upFile").value = ""; $("upHasil").innerHTML = ""; $("upSimpan").disabled = true;
+  openModal("modalUpload");
+}
+function bacaFileBase64(file) {
+  return new Promise((ok, gagal) => {
+    const fr = new FileReader();
+    fr.onload = () => ok(String(fr.result).split(",")[1] || "");
+    fr.onerror = () => gagal(new Error("File tidak bisa dibaca"));
+    fr.readAsDataURL(file);
+  });
+}
+function daftarRingkas(judul, list, warna) {
+  if (!list || !list.length) return "";
+  const tampil = list.slice(0, 8).map(esc).join(", ") + (list.length > 8 ? `, … (+${list.length - 8})` : "");
+  return `<div class="mt-2 p-2 rounded-lg ${warna} text-xs"><b>${judul} (${list.length}):</b> ${tampil}</div>`;
+}
+function tampilRingkasan(r, tersimpan) {
+  const ok = r.diperbarui + r.ditambah;
+  $("upHasil").innerHTML = `
+    <div class="p-3 rounded-lg ${tersimpan ? "bg-green-50 text-green-800" : "bg-blue-50 text-blue-900"} text-sm">
+      ${tersimpan ? "✅ <b>Tersimpan</b> ke" : "👀 <b>Pratinjau</b> — belum disimpan ke"} tab <b>${esc(r.tab)}</b><br>
+      Sheet dibaca: <b>${esc(r.sheet)}</b> · ${r.barisFile} baris<br>
+      <b>${r.diperbarui}</b> toko diperbarui · <b>${r.ditambah}</b> toko ditambahkan ke tab
+      ${r.kolomDipakai.length ? `<br>Kolom dipakai: ${r.kolomDipakai.map(esc).join(", ")}` : ""}
+    </div>
+    ${daftarRingkas("Kode toko tidak ada di Data Toko — dilewati", r.tidakDikenal, "bg-red-50 text-red-700")}
+    ${daftarRingkas("Angka tidak valid — sel dilewati", r.angkaSalah, "bg-red-50 text-red-700")}
+    ${daftarRingkas("Tier tidak dikenal — tetap ditulis, cek lagi", r.tierTidakDikenal, "bg-amber-50 text-amber-800")}
+    ${daftarRingkas("Kode toko muncul lebih dari sekali — hanya baris pertama dipakai", r.dobel, "bg-amber-50 text-amber-800")}
+    ${daftarRingkas("Kolom tidak dikenal — diabaikan", r.kolomDiabaikan, "bg-gray-100 text-gray-600")}
+    ${!tersimpan && ok === 0 ? '<div class="mt-2 text-sm text-red-600">Tidak ada toko yang cocok. Pastikan kolom KODE_TOKO berisi kode yang sama dengan Data Toko.</div>' : ""}`;
+  $("upSimpan").disabled = tersimpan || ok === 0;
+}
+async function pratinjauUpload() {
+  const f = $("upFile").files[0];
+  upFileData = null; $("upSimpan").disabled = true;
+  if (!f) { $("upHasil").innerHTML = ""; return; }
+  if (f.size > 10 * 1024 * 1024) { $("upHasil").innerHTML = '<div class="text-red-600 text-sm">File terlalu besar (maks 10 MB).</div>'; return; }
+  $("upHasil").innerHTML = '<div class="text-gray-400 text-sm">Membaca file...</div>';
+  try {
+    upFileData = { nama: f.name, data: await bacaFileBase64(f) };
+    const r = await api("POST", `/api/info/${infoData[upIndex].index}/upload`, upFileData);
+    tampilRingkasan(r.ringkasan, false);
+  } catch (e) { $("upHasil").innerHTML = `<div class="p-3 rounded-lg bg-red-50 text-red-700 text-sm">❌ ${esc(e.message)}</div>`; }
+}
+async function simpanUpload() {
+  if (!upFileData) return;
+  $("upSimpan").disabled = true; $("upSimpan").textContent = "Menyimpan...";
+  try {
+    const r = await api("POST", `/api/info/${infoData[upIndex].index}/upload?simpan=1`, upFileData);
+    tampilRingkasan(r.ringkasan, true);
+    showToast(`Data tersimpan: ${r.ringkasan.diperbarui + r.ringkasan.ditambah} toko`);
+    loadInfo();
+  } catch (e) { showToast(e.message, false); $("upSimpan").disabled = false; }
+  finally { $("upSimpan").textContent = "Simpan ke Spreadsheet"; }
+}
+// ---------- Upload Data Toko ----------
+let utFileData = null;
+function openUploadToko() {
+  utFileData = null;
+  $("utFile").value = ""; $("utHasil").innerHTML = ""; $("utSimpan").disabled = true;
+  openModal("modalUpToko");
+}
+function tampilRingkasanToko(r, tersimpan) {
+  const ok = r.diperbarui + r.ditambah;
+  $("utHasil").innerHTML = `
+    <div class="p-3 rounded-lg ${tersimpan ? "bg-green-50 text-green-800" : "bg-blue-50 text-blue-900"} text-sm">
+      ${tersimpan ? "✅ <b>Tersimpan</b> ke" : "👀 <b>Pratinjau</b> — belum disimpan ke"} sheet <b>Data Toko</b><br>
+      Sheet dibaca: <b>${esc(r.sheet)}</b> · ${r.barisFile} baris<br>
+      <b>${r.diperbarui}</b> toko diperbarui · <b>${r.ditambah}</b> toko baru · ${r.tidakBerubah} tidak berubah
+      ${r.kolomDipakai.length ? `<br>Kolom dipakai: ${r.kolomDipakai.map(esc).join(", ")}` : ""}
+    </div>
+    ${r.contoh.length ? `<div class="mt-2 p-2 rounded-lg bg-gray-50 text-xs text-gray-700 space-y-0.5">${r.contoh.map(c => `<div>${esc(c)}</div>`).join("")}${ok > r.contoh.length ? `<div class="text-gray-400">… dan ${ok - r.contoh.length} lainnya</div>` : ""}</div>` : ""}
+    ${daftarRingkas("Toko baru dengan data kurang — dilewati", r.dataKurang, "bg-red-50 text-red-700")}
+    ${daftarRingkas("Nomor WA tidak valid — WA tidak diubah", r.waSalah, "bg-red-50 text-red-700")}
+    ${daftarRingkas("Nomor WA sudah dipakai toko lain — WA tidak diubah", r.waBentrok, "bg-red-50 text-red-700")}
+    ${daftarRingkas("Kode toko muncul lebih dari sekali — hanya baris pertama dipakai", r.dobel, "bg-amber-50 text-amber-800")}
+    ${r.tanpaKode ? `<div class="mt-2 p-2 rounded-lg bg-amber-50 text-amber-800 text-xs"><b>${r.tanpaKode} baris tanpa KODE_TOKO</b> — dilewati</div>` : ""}
+    ${daftarRingkas("Kolom tidak dipakai — diabaikan", r.kolomDiabaikan, "bg-gray-100 text-gray-600")}
+    ${!tersimpan && ok === 0 ? '<div class="mt-2 text-sm text-gray-600">Tidak ada perubahan yang perlu disimpan.</div>' : ""}`;
+  $("utSimpan").disabled = tersimpan || ok === 0;
+}
+async function pratinjauUpToko() {
+  const f = $("utFile").files[0];
+  utFileData = null; $("utSimpan").disabled = true;
+  if (!f) { $("utHasil").innerHTML = ""; return; }
+  if (f.size > 10 * 1024 * 1024) { $("utHasil").innerHTML = '<div class="text-red-600 text-sm">File terlalu besar (maks 10 MB).</div>'; return; }
+  $("utHasil").innerHTML = '<div class="text-gray-400 text-sm">Membaca file...</div>';
+  try {
+    utFileData = { nama: f.name, data: await bacaFileBase64(f) };
+    const r = await api("POST", "/api/toko/upload", utFileData);
+    tampilRingkasanToko(r.ringkasan, false);
+  } catch (e) { $("utHasil").innerHTML = `<div class="p-3 rounded-lg bg-red-50 text-red-700 text-sm">❌ ${esc(e.message)}</div>`; }
+}
+async function simpanUpToko() {
+  if (!utFileData) return;
+  $("utSimpan").disabled = true; $("utSimpan").textContent = "Menyimpan...";
+  try {
+    const r = await api("POST", "/api/toko/upload?simpan=1", utFileData);
+    tampilRingkasanToko(r.ringkasan, true);
+    showToast(`Data toko tersimpan: ${r.ringkasan.diperbarui} diperbarui, ${r.ringkasan.ditambah} baru`);
+    loadToko();
+  } catch (e) { showToast(e.message, false); $("utSimpan").disabled = false; }
+  finally { $("utSimpan").textContent = "Simpan ke Spreadsheet"; }
 }
 function angkaId(n) {
   if (n === null || n === undefined) return "—";
@@ -870,28 +1135,28 @@ async function lihatPencapaian(i) {
   let r;
   try { r = await api("GET", `/api/info/${x.index}/pencapaian`); }
   catch (e) { $("capaiIsi").innerHTML = `<div class="text-red-500">${esc(e.message)}</div>`; return; }
-  const std = r.standar.length
-    ? `Target standar: ${r.standar.map(b => `<b>${esc(b.brand)}</b> ${esc(angkaId(b.target))}`).join(" · ")} pack`
-    : `Belum ada target standar (baris KODE_TOKO = SEMUA).`;
-  $("capaiInfo").innerHTML = `Tab <b>Pencapaian_Program</b>, kolom A = <b>${esc(r.kode)}</b>. ${std}` +
-    (r.targetProgram !== null ? ` Target total program: <b>${esc(angkaId(r.targetProgram))} pack</b>.` : "");
-  if (r.belumAdaTab) { $("capaiIsi").innerHTML = '<div class="p-3 bg-amber-50 rounded-lg text-amber-800">Tab <b>Pencapaian_Program</b> belum ada. Buka <b>Pengaturan → Spreadsheet</b> lalu klik <b>Buat otomatis</b>.</div>'; return; }
-  if (!r.data.length) { $("capaiIsi").innerHTML = `<div class="p-3 bg-gray-50 rounded-lg text-gray-600">Belum ada realisasi toko untuk kode <b>${esc(r.kode)}</b>. Isi tab Pencapaian_Program: 1 baris per brand per toko (KODE_PROGRAM, KODE_TOKO, BRAND, TARGET, REALISASI, ...).</div>`; return; }
+  if (!r.tab) { $("capaiIsi").innerHTML = '<div class="p-3 bg-amber-50 rounded-lg text-amber-800">Program ini belum punya tab di spreadsheet. Klik <b>Edit</b>, tambahkan brand & target, lalu Simpan — tab dibuat otomatis.</div>'; return; }
+  const std = r.pakaiTier
+    ? `Tier: ${r.tiers.map(t => `<b>${esc(t.nama)}</b> ${esc(angkaId(t.total))}`).join(" · ")} pack`
+    : (r.tiers[0] && r.tiers[0].total !== null ? `Target total minimal: <b>${esc(angkaId(r.tiers[0].total))} pack</b>` : "");
+  $("capaiInfo").innerHTML = `Dari <a href="${esc(infoSheetUrl)}#gid=${r.gid}" target="_blank" class="text-blue-600 underline">tab "${esc(r.tab)}"</a>. ${std}`;
+  if (!r.data.length) { $("capaiIsi").innerHTML = `<div class="p-3 bg-gray-50 rounded-lg text-gray-600">Belum ada toko yang diisi${r.pakaiTier ? " tier atau" : ""} realisasinya. Buka tab <b>${esc(r.tab)}</b> dan isi${r.pakaiTier ? " kolom TIER serta" : ""} angka di kolom brand pada baris tiap toko.</div>`; return; }
+  const tanpaTier = r.data.filter(d => d.tierBelumAda).length;
   const tercapai = r.data.filter(d => d.tercapai).length;
   $("capaiIsi").innerHTML = `
-    <div class="text-sm text-gray-600 mb-2">${r.data.length} toko · <b class="text-green-700">${tercapai} sudah capai target</b></div>
+    <div class="text-sm text-gray-600 mb-2">${r.data.length} toko · <b class="text-green-700">${tercapai} sudah capai target</b>${tanpaTier ? ` · <b class="text-red-600">${tanpaTier} toko tier-nya kosong / tidak dikenal</b>` : ""}</div>
     <div class="overflow-x-auto"><table class="w-full text-sm">
       <thead class="bg-gray-50 text-gray-600 text-left"><tr>
         <th class="px-3 py-2">Toko</th><th class="px-3 py-2">Per brand (pack)</th><th class="px-3 py-2">Total</th><th class="px-3 py-2">Update</th>
       </tr></thead>
       <tbody>${r.data.map(d => `<tr class="border-t border-gray-100 align-top">
-          <td class="px-3 py-2"><div class="font-medium text-gray-800">${d.tercapai ? "🎉 " : ""}${esc(d.namaToko || "—")}</div><div class="text-xs ${d.namaToko ? "text-gray-400" : "text-red-500"}">${esc(d.kodeToko)}${d.namaToko ? "" : " · kode toko tidak ada di Data Toko"}</div></td>
+          <td class="px-3 py-2"><div class="font-medium text-gray-800">${d.tercapai ? "🎉 " : ""}${esc(d.namaToko || "—")}</div>${d.tier ? `<div class="text-xs text-blue-700 font-semibold">${esc(d.tier)}</div>` : ""}${d.tierBelumAda ? '<div class="text-xs text-red-600">tier belum diisi / tidak dikenal</div>' : ""}<div class="text-xs ${d.namaToko ? "text-gray-400" : "text-red-500"}">${esc(d.kodeToko)}${d.namaToko ? "" : " · kode toko tidak ada di Data Toko"}</div></td>
           <td class="px-3 py-2 min-w-[12rem]">${d.brand.length ? d.brand.map(b => `
-            <div class="mb-1.5"><div class="flex justify-between gap-2 text-xs"><span class="text-gray-700">${esc(b.brand)}</span>
+            <div class="mb-1.5"><div class="flex justify-between gap-2 text-xs"><span class="text-gray-700">${esc(b.brand)}${b.opsional ? ' <span class="text-gray-400">(opsional)</span>' : ""}</span>
               <span class="whitespace-nowrap ${b.tercapai ? "text-green-700 font-semibold" : "text-gray-500"}">${esc(angkaId(b.realisasi))} / ${esc(angkaId(b.target))}${b.tercapai ? " ✓" : ""}</span></div>
               ${barProgres(b.persen, true)}</div>`).join("") : '<span class="text-xs text-gray-400">tanpa rincian brand</span>'}</td>
           <td class="px-3 py-2 min-w-[8rem]"><div class="text-xs whitespace-nowrap mb-1"><b>${esc(angkaId(d.realisasi))}</b> / ${esc(angkaId(d.target))}</div>
-            ${barProgres(d.persen)}<div class="text-xs text-gray-500 mt-1">${d.persen === null ? "—" : d.persen + "%"}${d.brand.length ? ` · ${d.brandTercapai}/${d.brand.length} brand` : ""}</div></td>
+            ${barProgres(d.persen)}<div class="text-xs text-gray-500 mt-1">${d.persen === null ? "—" : d.persen + "%"}${d.brandWajib ? ` · ${d.brandTercapai}/${d.brandWajib} brand wajib` : ""}</div></td>
           <td class="px-3 py-2 text-xs text-gray-500">${esc(d.update)}${d.keterangan.map(k => `<div>${esc(k)}</div>`).join("")}</td>
         </tr>`).join("")}</tbody>
     </table></div>`;

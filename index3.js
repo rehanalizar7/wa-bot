@@ -105,9 +105,9 @@ const cache = {
   toko:   { data: null, at: 0 },
   hadiah: { data: null, at: 0 },
   info:   { data: null, at: 0 },
-  capai:  { data: null, at: 0 },
+  tabProgram: new Map(), // nama tab → { data, at }
 };
-function clearCache() { cache.toko.at = 0; cache.hadiah.at = 0; cache.info.at = 0; cache.capai.at = 0; }
+function clearCache() { cache.toko.at = 0; cache.hadiah.at = 0; cache.info.at = 0; cache.tabProgram.clear(); }
 
 async function getTokoDB() {
   const now = Date.now();
@@ -165,21 +165,26 @@ async function getInfoProgram() {
   return cache.info.data;
 }
 
-// Sheet Pencapaian_Program — format & perhitungan ada di lib/pencapaian.js
-async function getPencapaian() {
+// Tab pencapaian 1 program (nama tab = judul program) — format ada di lib/pencapaian.js.
+// Return null kalau tab belum dibuat.
+async function getTabProgram(program) {
+  const tab = pencapaian.namaTab(program.judul);
+  if (!tab) return null;
   const now = Date.now();
-  if (cache.capai.data && now - cache.capai.at < CACHE_TTL_INFO) return cache.capai.data;
-  let rows = [];
+  const c = cache.tabProgram.get(tab);
+  if (c && now - c.at < CACHE_TTL_INFO) return c.data;
+  let data = null;
   try {
-    const res = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: pencapaian.RANGE, valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "FORMATTED_STRING" });
-    rows = res.data.values || [];
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SID(), range: `'${tab.replace(/'/g, "''")}'!A1:Z`,
+      valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "FORMATTED_STRING",
+    });
+    data = pencapaian.parseTab(res.data.values);
   } catch (err) {
-    // Tab belum dibuat → anggap belum ada data pencapaian
     if (!/Unable to parse range/i.test(err.message)) throw err;
   }
-  cache.capai.data = pencapaian.parseBaris(rows);
-  cache.capai.at = now;
-  return cache.capai.data;
+  cache.tabProgram.set(tab, { data, at: now });
+  return data;
 }
 
 async function getHadiahSheetId() {
@@ -610,14 +615,14 @@ async function kirimMenuTambahan(chatId, menu, vars) {
 // ── INFO PROGRAM + PENCAPAIAN ─────────────────────────────────
 /** Kirim detail 1 program (+ pencapaian toko). Return teks penutup untuk di-reply. */
 async function kirimDetailProgram(chatId, program, toko, adaLainnya) {
-  let capaiList = [];
-  try { capaiList = await getPencapaian(); }
+  let tab = null;
+  try { tab = await getTabProgram(program); }
   catch (err) { console.error("Gagal baca pencapaian:", err.message); }
 
   const bagian = [`📢 *${program.judul}*` + (program.periode ? `\n🗓️ Periode: ${program.periode}` : "")];
   if (program.deskripsi) bagian.push(program.deskripsi);
   if (program.mekanisme) bagian.push(`📋 *Mekanisme:*\n${program.mekanisme}`);
-  const capai = pencapaian.teksWa(program, toko, capaiList);
+  const capai = pencapaian.teksWa(program, toko, tab);
   if (capai) bagian.push(capai);
   const isi = bagian.join("\n\n");
   const penutup = adaLainnya

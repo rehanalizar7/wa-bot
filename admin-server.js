@@ -21,6 +21,8 @@ const http = require("http");
 const crypto = require("crypto");
 const store = require("./lib/store");
 const pencapaian = require("./lib/pencapaian");
+const dataToko = require("./lib/dataToko");
+const XLSX = require("xlsx");
 
 const cfg = () => store.getConfig();
 const { normWa, toList } = store;
@@ -32,7 +34,10 @@ const HEARTBEAT_FILE = path.join(__dirname, "watchdog_heartbeat");
 
 const app = express();
 app.set("trust proxy", true);
-app.use(express.json({ limit: "1mb" }));
+// Upload file HO (base64) butuh batas lebih besar — hanya untuk rute upload
+const jsonKecil = express.json({ limit: "1mb" });
+const jsonBesar = express.json({ limit: "15mb" });
+app.use((req, res, next) => (/^\/api\/(info\/\d+|toko)\/upload$/.test(req.path) ? jsonBesar : jsonKecil)(req, res, next));
 
 // Hanya folder public/ yang boleh diakses browser.
 // (JANGAN pakai express.static(__dirname) — itu membuka credentials.json & semua file bot)
@@ -135,7 +140,6 @@ const SHEET_STRUKTUR = {
   "List_Hadiah":  ["ID", "NAMA", "POIN", "GAMBAR", "STOK", "TIPE"],
   "LOG_KLAIM":    ["TANGGAL", "NAMA_TOKO", "PIC_TOKO", "KODE_TOKO", "AKSI", "KETERANGAN", "POIN_DIUBAH", "SISA_POIN"],
   "Info_Program": ["JUDUL", "DESKRIPSI", "GAMBAR", "MEKANISME", "PERIODE", "KODE_PROGRAM", "TARGET", "SATUAN"],
-  "Pencapaian_Program": pencapaian.HEADER,
 };
 
 /**
@@ -629,6 +633,84 @@ app.post("/api/toko", requireAuth, async (req, res) => {
   } catch (e) { kirimError(res, e); }
 });
 
+// ---------- Template & upload massal Data Toko ----------
+function bacaFileUpload(body) {
+  const { data } = body || {};
+  if (!data) throw salahInput("File belum dipilih");
+  let wb;
+  try { wb = XLSX.read(Buffer.from(String(data), "base64"), { type: "buffer" }); }
+  catch { throw salahInput("File tidak bisa dibaca. Pakai format .xlsx, .xls, atau .csv"); }
+  const namaSheet = wb.SheetNames.find(n => n.trim().toUpperCase() === "DATA") || wb.SheetNames[0];
+  // raw:true → nomor WA yang tersimpan sebagai angka dibaca utuh (bukan "6.28E+12" sesuai tampilan Excel)
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[namaSheet], { defval: "", raw: true })
+    .map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, typeof v === "number" ? v.toLocaleString("fullwide", { useGrouping: false }) : v])));
+  if (!rows.length) throw salahInput(`Sheet "${namaSheet}" kosong`);
+  if (rows.length > 5000) throw salahInput("Maksimal 5.000 baris per upload");
+  return { namaSheet, rows };
+}
+
+app.get("/api/toko/template", requireAuth, async (req, res) => {
+  try {
+    const r = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Data Toko!A2:I" });
+    const aoa = dataToko.barisTemplate(r.data.values || []);
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    // Semua sel sebagai teks supaya nomor WA / kode tidak berubah format di Excel
+    for (const ref of Object.keys(ws)) if (ref[0] !== "!") { ws[ref].t = "s"; ws[ref].z = "@"; }
+    ws["!cols"] = [{ wch: 14 }, { wch: 30 }, { wch: 22 }, { wch: 17 }, { wch: 14 }, { wch: 14 }];
+    const petunjuk = [
+      ["Template upload — Data Toko"],
+      [],
+      ["1. Satu baris per toko. KODE_TOKO wajib diisi dan jadi kunci pencocokan."],
+      ["2. Kode yang sudah ada → datanya diperbarui. Kode baru → toko ditambahkan (wajib isi NAMA_TOKO, PIC_TOKO, WA)."],
+      ["3. Sel yang dikosongkan tidak mengubah data lama. Urutan kolom boleh diubah, nama header jangan."],
+      ["4. WA boleh ditulis 08xx, 628xx, atau +62 8xx — otomatis disesuaikan. Satu nomor WA hanya untuk satu toko."],
+      ["5. POIN tidak bisa diubah lewat upload (pakai menu Poin). Kolom POIN di file akan diabaikan."],
+      ["6. Toko tidak dihapus lewat upload. Hapus toko lewat tombol Hapus di panel."],
+      ["7. Upload lewat panel: tab Toko → tombol \"Upload Data Toko\". Akan ada pratinjau sebelum disimpan."],
+    ];
+    const wsP = XLSX.utils.aoa_to_sheet(petunjuk);
+    wsP["!cols"] = [{ wch: 100 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Data");
+    XLSX.utils.book_append_sheet(wb, wsP, "Petunjuk");
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="Template_Data_Toko.xlsx"`);
+    res.send(buf);
+  } catch (e) { kirimError(res, e); }
+});
+
+/** Tanpa ?simpan=1 → pratinjau saja. Dengan ?simpan=1 → tulis ke Data Toko. */
+app.post("/api/toko/upload", requireAuth, async (req, res) => {
+  try {
+    const { namaSheet, rows } = bacaFileUpload(req.body);
+    const r = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Data Toko!A2:I" });
+    let hasil;
+    try { hasil = dataToko.gabung(r.data.values || [], rows); }
+    catch (e) { return res.status(400).json({ error: e.message }); }
+    const ringkasan = { ...hasil.ringkasan, sheet: namaSheet, barisFile: rows.length };
+    if (req.query.simpan !== "1") return res.json({ simpan: false, ringkasan });
+    if (!hasil.update.length && !hasil.baru.length) return res.status(400).json({ error: "Tidak ada perubahan untuk disimpan", ringkasan });
+
+    if (hasil.update.length) {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: SID(),
+        requestBody: { valueInputOption: "RAW", data: hasil.update.map(u => ({ range: `Data Toko!B${u.baris}:G${u.baris}`, values: [u.nilai] })) },
+      });
+    }
+    if (hasil.baru.length) {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: SID(), range: "Data Toko!A:H",
+        valueInputOption: "RAW", insertDataOption: "INSERT_ROWS", requestBody: { values: hasil.baru },
+      });
+    }
+    await catatLog(now(), "-", "", "-", "UPLOAD TOKO",
+      `${ringkasan.diperbarui} toko diperbarui, ${ringkasan.ditambah} ditambah — file ${String(req.body.nama || "-").slice(0, 80)} — Via Admin Web`, 0, 0);
+    segarkanBot();
+    res.json({ simpan: true, ringkasan });
+  } catch (e) { kirimError(res, e); }
+});
+
 app.put("/api/toko/:wa", requireAuth, async (req, res) => {
   try {
     const { dsub, tsub, kode, nama, pic, poin } = req.body;
@@ -770,62 +852,210 @@ app.delete("/api/hadiah/:index", requireAuth, async (req, res) => {
 
 // ============================================================
 // INFO PROGRAM  (sheet Info_Program: A JUDUL, B DESKRIPSI, C GAMBAR,
-//                D MEKANISME, E PERIODE, F KODE_PROGRAM, G TARGET, H SATUAN)
+//                D MEKANISME, E PERIODE, F (tidak dipakai), G TARGET TOTAL, H (tidak dipakai))
+// Pencapaian tiap program ada di TAB SENDIRI bernama judul program (lihat lib/pencapaian.js).
 // ============================================================
 
-function barisInfo(b) {
-  const target = String(b.target ?? "").trim();
-  return [b.judul, b.deskripsi, b.gambar || "", b.mekanisme || "", b.periode || "",
-    String(b.kode || "").trim().toUpperCase(), target === "" ? "" : parseAngka(target) ?? target, ""];
+const OPSI_ANGKA = { valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "FORMATTED_STRING" };
+const kutipTab = t => `'${String(t).replace(/'/g, "''")}'`;
+
+/** { judulTab: sheetId } semua tab di spreadsheet */
+async function daftarTab() {
+  const r = await sheets.spreadsheets.get({ spreadsheetId: SID(), fields: "sheets.properties(sheetId,title)" });
+  return new Map(r.data.sheets.map(x => [x.properties.title, x.properties.sheetId]));
 }
 
-function cekInfo(b) {
-  if (!b.judul || !b.deskripsi) return "Judul dan isi wajib diisi";
-  if (String(b.target ?? "").trim() !== "" && parseAngka(b.target) === null) return "Target harus berupa angka";
+/** Cari tab tanpa peduli huruf besar/kecil → [judulAsli, sheetId] atau null */
+function cariTab(tabs, nama) {
+  const k = String(nama).trim().toUpperCase();
+  for (const [t, id] of tabs) if (t.trim().toUpperCase() === k) return [t, id];
   return null;
+}
+
+function barisInfo(b) {
+  return [b.judul, b.deskripsi, b.gambar || "", b.mekanisme || "", b.periode || "", "", "", ""];
+}
+
+/**
+ * Bersihkan & validasi pengaturan target dari form →
+ * { pakaiTier, tiers: [{nama,total}], brands: [{brand, opsional, target:[per tier]}] } atau string error
+ */
+function bersihkanTarget(body) {
+  const angka = (v, label) => {
+    const t = String(v ?? "").trim();
+    if (t === "") return null;
+    const n = parseAngka(t);
+    if (n === null) throw `${label} harus angka`;
+    return n;
+  };
+  try {
+    const pakaiTier = !!body.pakaiTier;
+    let tiers = (Array.isArray(body.tiers) ? body.tiers : []).map(t => ({
+      nama: String(t.nama ?? "").replace(/\s+/g, " ").trim(), total: t.total,
+    }));
+    if (pakaiTier) {
+      tiers = tiers.filter(t => t.nama || String(t.total ?? "").trim());
+      if (!tiers.length) return "Isi minimal 1 tier, atau matikan pilihan tier";
+      const sudahTier = new Set();
+      for (const t of tiers) {
+        if (!t.nama) return "Nama tier tidak boleh kosong";
+        const k = pencapaian.kunciTier(t.nama);
+        if (sudahTier.has(k)) return `Tier "${t.nama}" ditulis dua kali`;
+        sudahTier.add(k);
+      }
+    } else {
+      tiers = [{ nama: "", total: tiers[0]?.total }];
+    }
+    tiers = tiers.map(t => ({ nama: t.nama, total: angka(t.total, `Target total ${t.nama || ""}`.trim()) }));
+
+    const brands = [];
+    const sudah = new Set();
+    for (const x of Array.isArray(body.brands) ? body.brands : []) {
+      const brand = String(x.brand ?? "").replace(/\s*\(\s*opsional\s*\)\s*$/i, "").replace(/\s+/g, " ").trim();
+      const target = Array.isArray(x.target) ? x.target : [x.target];
+      if (!brand && target.every(v => String(v ?? "").trim() === "")) continue;
+      if (!brand) return "Nama brand tidak boleh kosong";
+      if (pencapaian.KOL_TETAP.includes(brand.toUpperCase())) return `"${brand}" tidak bisa dipakai sebagai nama brand`;
+      if (sudah.has(brand.toUpperCase())) return `Brand "${brand}" ditulis dua kali`;
+      sudah.add(brand.toUpperCase());
+      brands.push({ brand, opsional: !!x.opsional, target: tiers.map((t, i) => angka(target[i], `Target ${brand}${t.nama ? " " + t.nama : ""}`)) });
+    }
+    return { pakaiTier, tiers, brands };
+  } catch (e) {
+    if (typeof e === "string") return e;
+    throw e;
+  }
+}
+
+/** Program ini perlu tab pencapaian? (ada brand, atau ada target total) */
+const perluTab = cfg => cfg.brands.length > 0 || cfg.pakaiTier || cfg.tiers.some(t => t.total != null);
+
+async function bacaInfoRows() {
+  const r = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Info_Program!A2:H", ...OPSI_ANGKA });
+  return r.data.values || [];
+}
+
+/** Validasi form. Return pesan error atau null. */
+function cekInfo(b, infoRows, indexSendiri) {
+  if (!b.judul || !b.deskripsi) return "Judul dan isi wajib diisi";
+  const tab = pencapaian.namaTab(b.judul);
+  if (!tab) return "Judul tidak valid";
+  const terlarang = [...Object.keys(SHEET_STRUKTUR), "Sheet1"].map(t => t.toUpperCase());
+  if (terlarang.includes(tab.toUpperCase())) return `Judul "${b.judul}" bentrok dengan nama tab bawaan bot`;
+  const dobel = infoRows.findIndex((r, i) => r && r[0] && i + 1 !== indexSendiri &&
+    pencapaian.namaTab(r[0]).toUpperCase() === tab.toUpperCase());
+  if (dobel >= 0) return `Sudah ada program dengan judul "${infoRows[dobel][0]}"`;
+  return null;
+}
+
+/**
+ * Samakan tab program dengan daftar brand dari panel:
+ * - ganti nama tab kalau judul program berubah
+ * - buat tab kalau belum ada (dan ada brand)
+ * - susun ulang kolom brand + baris TARGET; angka realisasi lama ikut pindah berdasarkan nama brand
+ * - toko dari Data Toko yang belum ada di tab ditambahkan
+ */
+async function sinkronTab(judulLama, judulBaru, cfg) {
+  const tabs = await daftarTab();
+  const namaBaru = pencapaian.namaTab(judulBaru);
+  let ada = cariTab(tabs, namaBaru);
+  const lama = judulLama ? cariTab(tabs, pencapaian.namaTab(judulLama)) : null;
+
+  if (lama && !ada) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId: SID(), requestBody: { requests: [
+      { updateSheetProperties: { properties: { sheetId: lama[1], title: namaBaru }, fields: "title" } },
+    ] } });
+    ada = [namaBaru, lama[1]];
+  }
+  if (!ada && !perluTab(cfg)) return null; // program tanpa target → tidak perlu tab
+
+  if (!ada) {
+    const r = await sheets.spreadsheets.batchUpdate({ spreadsheetId: SID(), requestBody: { requests: [
+      { addSheet: { properties: { title: namaBaru, gridProperties: { frozenRowCount: 1, frozenColumnCount: 2 } } } },
+    ] } });
+    ada = [namaBaru, r.data.replies[0].addSheet.properties.sheetId];
+  }
+
+  const [isiLama, rt] = await Promise.all([
+    sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: `${kutipTab(ada[0])}!A1:Z`, valueRenderOption: "FORMULA", dateTimeRenderOption: "FORMATTED_STRING" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Data Toko!D2:E" }),
+  ]);
+  const tokoDaftar = (rt.data.values || []).filter(r => r && r[0]).map(r => ({ kode: String(r[0]).trim(), nama: r[1] || "" }));
+  const baru = pencapaian.susunTab(isiLama.data.values, cfg, tokoDaftar);
+  await sheets.spreadsheets.values.clear({ spreadsheetId: SID(), range: `${kutipTab(ada[0])}!A1:Z` });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SID(), range: `${kutipTab(ada[0])}!A1`,
+    valueInputOption: "USER_ENTERED", requestBody: { values: baru },
+  });
+  return ada[0];
 }
 
 app.get("/api/info", requireAuth, async (req, res) => {
   try {
-    const r = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Info_Program!A2:H", valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "FORMATTED_STRING" });
-    const data = (r.data.values || []).map((row, i) => ({ row, index: i + 1 })).filter(x => x.row && x.row[0]).map(({ row, index }) => ({
-      index, judul: row[0] || "", deskripsi: row[1] || "", gambar: row[2] || "",
-      mekanisme: row[3] || "", periode: row[4] || "", kode: row[5] || "",
-      target: row[6] ?? "", satuan: row[7] || "",
-    }));
-    res.json(data);
+    const [rows, tabs] = await Promise.all([bacaInfoRows(), daftarTab()]);
+    const data = rows.map((row, i) => ({ row, index: i + 1 })).filter(x => x.row && x.row[0]).map(({ row, index }) => {
+      const t = cariTab(tabs, pencapaian.namaTab(row[0]));
+      return {
+        index, judul: String(row[0]), deskripsi: row[1] || "", gambar: row[2] || "",
+        mekanisme: row[3] || "", periode: row[4] || "", target: row[6] ?? "",
+        tab: t ? t[0] : null, gid: t ? t[1] : null,
+        ...pencapaian.untukForm(null),
+      };
+    });
+    // Ambil header + baris TARGET tiap tab program sekaligus
+    const punyaTab = data.filter(x => x.tab);
+    if (punyaTab.length) {
+      const r = await sheets.spreadsheets.values.batchGet({
+        spreadsheetId: SID(), ranges: punyaTab.map(x => `${kutipTab(x.tab)}!A1:Z`), ...OPSI_ANGKA,
+      });
+      punyaTab.forEach((x, i) => {
+        const tab = pencapaian.parseTab(r.data.valueRanges[i].values);
+        Object.assign(x, pencapaian.untukForm(tab));
+        x.jumlahTokoTerisi = [...tab.toko.values()].filter(d => d.adaAngka).length;
+      });
+    }
+    res.json({ spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${SID()}/edit`, data });
   } catch (e) { kirimError(res, e); }
 });
 
 app.post("/api/info", requireAuth, async (req, res) => {
   try {
-    const salah = cekInfo(req.body);
+    const cfg = bersihkanTarget(req.body);
+    if (typeof cfg === "string") return res.status(400).json({ error: cfg });
+    const salah = cekInfo(req.body, await bacaInfoRows(), null);
     if (salah) return res.status(400).json({ error: salah });
     await sheets.spreadsheets.values.append({
       spreadsheetId: SID(), range: "Info_Program!A:H",
       valueInputOption: "RAW", insertDataOption: "INSERT_ROWS",
       requestBody: { values: [barisInfo(req.body)] },
     });
+    const tab = await sinkronTab(null, req.body.judul, cfg);
     segarkanBot();
-    res.json({ ok: true });
+    res.json({ ok: true, tab });
   } catch (e) { kirimError(res, e); }
 });
 
 app.put("/api/info/:index", requireAuth, async (req, res) => {
   try {
-    const sheetRow = parseInt(req.params.index) + 1;
-    if (!(sheetRow >= 2)) return res.status(400).json({ error: "Index tidak valid" });
-    const salah = cekInfo(req.body);
+    const index = parseInt(req.params.index);
+    if (!(index >= 1)) return res.status(400).json({ error: "Index tidak valid" });
+    const cfg = bersihkanTarget(req.body);
+    if (typeof cfg === "string") return res.status(400).json({ error: cfg });
+    const rows = await bacaInfoRows();
+    const salah = cekInfo(req.body, rows, index);
     if (salah) return res.status(400).json({ error: salah });
+    const judulLama = rows[index - 1]?.[0] || null;
     await sheets.spreadsheets.values.update({
-      spreadsheetId: SID(), range: `Info_Program!A${sheetRow}:H${sheetRow}`,
+      spreadsheetId: SID(), range: `Info_Program!A${index + 1}:H${index + 1}`,
       valueInputOption: "RAW", requestBody: { values: [barisInfo(req.body)] },
     });
+    const tab = await sinkronTab(judulLama, req.body.judul, cfg);
     segarkanBot();
-    res.json({ ok: true });
+    res.json({ ok: true, tab });
   } catch (e) { kirimError(res, e); }
 });
 
+// Hapus program: baris di Info_Program dihapus, tab pencapaiannya DIBIARKAN (arsip data)
 app.delete("/api/info/:index", requireAuth, async (req, res) => {
   try {
     const index = parseInt(req.params.index);
@@ -836,31 +1066,128 @@ app.delete("/api/info/:index", requireAuth, async (req, res) => {
   } catch (e) { kirimError(res, e); }
 });
 
-// Pencapaian 1 program untuk semua toko (rekap per brand, dihitung di lib/pencapaian.js)
+// ── TEMPLATE & UPLOAD DATA HO ──────────────────────────────────
+
+/** Program + tab + daftar toko untuk 1 program (dipakai template & upload) */
+async function dataProgram(index) {
+  if (!(index >= 1)) throw Object.assign(new Error("Index tidak valid"), { status: 400 });
+  const p = (await bacaInfoRows())[index - 1] || [];
+  if (!p[0]) throw Object.assign(new Error("Program tidak ditemukan"), { status: 404 });
+  const program = { judul: String(p[0]), target: parseAngka(p[6]) };
+  const t = cariTab(await daftarTab(), pencapaian.namaTab(program.judul));
+  if (!t) throw Object.assign(new Error("Program ini belum punya tab target. Klik Edit, isi brand / tier, lalu Simpan dulu."), { status: 400 });
+  const [rf, ru, rt] = await Promise.all([
+    sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: `${kutipTab(t[0])}!A1:Z`, valueRenderOption: "FORMULA", dateTimeRenderOption: "FORMATTED_STRING" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: `${kutipTab(t[0])}!A1:Z`, ...OPSI_ANGKA }),
+    sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Data Toko!D2:E" }),
+  ]);
+  const tab = pencapaian.parseTab(ru.data.values);
+  const tokoDaftar = (rt.data.values || []).filter(r => r && r[0]).map(r => ({ kode: String(r[0]).trim(), nama: r[1] || "" }));
+  return { program, namaTab: t[0], gid: t[1], valuesFormula: rf.data.values || [], tab, cfg: pencapaian.untukForm(tab), tokoDaftar };
+}
+
+const namaFileAman = s => String(s).replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "_") || "program";
+
+app.get("/api/info/:index/template", requireAuth, async (req, res) => {
+  try {
+    const d = await dataProgram(parseInt(req.params.index));
+    const aoa = pencapaian.barisTemplate(d.tab, d.cfg, d.tokoDaftar);
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws["!cols"] = aoa[0].map((h, i) => ({ wch: i === 1 ? 28 : Math.max(10, String(h).length + 2) }));
+    ws["!freeze"] = { xSplit: 2, ySplit: 1 };
+    const tierTeks = d.cfg.pakaiTier ? d.cfg.tiers.map(t => `${t.nama} (target total ${t.total ?? "-"})`).join(", ") : "";
+    const petunjuk = [
+      [`Template upload — ${d.program.judul}`],
+      [],
+      ["1. Isi angka REALISASI (pack) di kolom tiap brand, satu baris per toko."],
+      ["2. Jangan ubah isi kolom KODE_TOKO. Urutan kolom boleh diubah, nama header jangan."],
+      ["3. Sel yang dikosongkan tidak mengubah data lama. Kolom yang tidak dikenal diabaikan."],
+      ...(d.cfg.pakaiTier ? [[`4. Kolom TIER: isi salah satu dari ${tierTeks}. Boleh ditulis angkanya saja (mis. 1).`]] : []),
+      [`${d.cfg.pakaiTier ? 5 : 4}. Brand bertanda (opsional) tidak wajib dipenuhi, tapi tetap dihitung ke total.`],
+      [`${d.cfg.pakaiTier ? 6 : 5}. Target diatur dari panel (Info Program → Edit), bukan dari file ini.`],
+      [`${d.cfg.pakaiTier ? 7 : 6}. Upload lewat panel: Info Program → tombol "Upload data HO" pada program ini.`],
+      [],
+      ["Target saat ini:"],
+      ["Brand", ...(d.cfg.pakaiTier ? d.cfg.tiers.map(t => t.nama) : ["Target"])],
+      ...d.cfg.brands.map(b => [b.brand + (b.opsional ? " (opsional)" : ""), ...b.target.map(v => v ?? "")]),
+      ["TOTAL minimal", ...d.cfg.tiers.map(t => t.total ?? "")],
+    ];
+    const wsP = XLSX.utils.aoa_to_sheet(petunjuk);
+    wsP["!cols"] = [{ wch: 30 }, ...d.cfg.tiers.map(() => ({ wch: 12 }))];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Data");
+    XLSX.utils.book_append_sheet(wb, wsP, "Petunjuk");
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="Template_${namaFileAman(d.program.judul)}.xlsx"`);
+    res.send(buf);
+  } catch (e) { kirimError(res, e); }
+});
+
+/**
+ * Upload file HO (xlsx / xls / csv, dikirim base64).
+ * Tanpa ?simpan=1 → hanya pratinjau (tidak menulis apa pun). Dengan ?simpan=1 → tulis ke tab.
+ */
+app.post("/api/info/:index/upload", requireAuth, async (req, res) => {
+  try {
+    const { nama, data } = req.body || {};
+    if (!data) return res.status(400).json({ error: "File belum dipilih" });
+    let wb;
+    try { wb = XLSX.read(Buffer.from(String(data), "base64"), { type: "buffer", cellDates: true }); }
+    catch { return res.status(400).json({ error: "File tidak bisa dibaca. Pakai format .xlsx, .xls, atau .csv" }); }
+    // Pakai sheet "Data" kalau ada (template), kalau tidak sheet pertama
+    const namaSheet = wb.SheetNames.find(n => n.trim().toUpperCase() === "DATA") || wb.SheetNames[0];
+    const tglId = v => v instanceof Date ? v.toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta" }) : v;
+    const rowsFile = XLSX.utils.sheet_to_json(wb.Sheets[namaSheet], { defval: "", raw: true })
+      .map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, tglId(v)])));
+    if (!rowsFile.length) return res.status(400).json({ error: `Sheet "${namaSheet}" kosong` });
+    if (rowsFile.length > 5000) return res.status(400).json({ error: "Maksimal 5.000 baris per upload" });
+
+    const d = await dataProgram(parseInt(req.params.index));
+    const tokoValid = new Map(d.tokoDaftar.map(t => [t.kode.toUpperCase(), t.nama]));
+    const tanggal = new Date().toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta" });
+    let hasil;
+    try { hasil = pencapaian.gabungUpload(d.valuesFormula, d.cfg, rowsFile, tokoValid, tanggal); }
+    catch (e) { return res.status(400).json({ error: e.message }); }
+    const r = hasil.ringkasan;
+    const ringkasan = { ...r, sheet: namaSheet, barisFile: rowsFile.length, tab: d.namaTab };
+
+    if (req.query.simpan !== "1") return res.json({ simpan: false, ringkasan });
+    if (r.diperbarui + r.ditambah === 0) return res.status(400).json({ error: "Tidak ada toko yang cocok untuk disimpan", ringkasan });
+
+    const baru = pencapaian.susunTab(hasil.values, d.cfg, d.tokoDaftar);
+    await sheets.spreadsheets.values.clear({ spreadsheetId: SID(), range: `${kutipTab(d.namaTab)}!A1:Z` });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SID(), range: `${kutipTab(d.namaTab)}!A1`,
+      valueInputOption: "USER_ENTERED", requestBody: { values: baru },
+    });
+    await catatLog(now(), "-", "", "-", "UPLOAD PROGRAM",
+      `${d.program.judul}: ${r.diperbarui} toko diperbarui, ${r.ditambah} ditambah — file ${String(nama || "-").slice(0, 80)} — Via Admin Web`, 0, 0);
+    segarkanBot();
+    res.json({ simpan: true, ringkasan });
+  } catch (e) { kirimError(res, e); }
+});
+
+// Rekap pencapaian 1 program untuk semua toko
 app.get("/api/info/:index/pencapaian", requireAuth, async (req, res) => {
   try {
-    const sheetRow = parseInt(req.params.index) + 1;
-    if (!(sheetRow >= 2)) return res.status(400).json({ error: "Index tidak valid" });
-    const opsi = { valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "FORMATTED_STRING" };
-    let belumAdaTab = false;
-    const [rp, rc, rt] = await Promise.all([
-      sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: `Info_Program!A${sheetRow}:H${sheetRow}`, ...opsi }),
-      sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: pencapaian.RANGE, ...opsi })
-        .catch(e => { if (/Unable to parse range/i.test(e.message)) { belumAdaTab = true; return { data: { values: [] } }; } throw e; }),
-      sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Data Toko!A2:H" }),
-    ]);
-    const p = (rp.data.values || [[]])[0] || [];
+    const index = parseInt(req.params.index);
+    if (!(index >= 1)) return res.status(400).json({ error: "Index tidak valid" });
+    const p = (await bacaInfoRows())[index - 1] || [];
     if (!p[0]) return res.status(404).json({ error: "Program tidak ditemukan" });
-    const program = { judul: String(p[0]), kode: String(p[5] || "").trim(), target: parseAngka(p[6]) };
-    const baris = pencapaian.parseBaris(rc.data.values);
-    const key = pencapaian.kodeProgram(program);
-    const namaToko = new Map((rt.data.values || []).map(r => [String(r[3] || "").trim().toUpperCase(), r[4] || ""]));
-    const standar = baris.filter(b => b.program === key && pencapaian.KODE_SEMUA.has(b.kodeToko))
-      .map(b => ({ brand: b.brand || "(total)", target: b.target }));
-    const data = pencapaian.rekap(program, baris)
+    const program = { judul: String(p[0]), target: parseAngka(p[6]) };
+    const t = cariTab(await daftarTab(), pencapaian.namaTab(program.judul));
+    if (!t) return res.json({ judul: program.judul, tab: null, ...pencapaian.untukForm(null), data: [] });
+    const [rc, rt] = await Promise.all([
+      sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: `${kutipTab(t[0])}!A1:Z`, ...OPSI_ANGKA }),
+      sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Data Toko!D2:E" }),
+    ]);
+    const tab = pencapaian.parseTab(rc.data.values);
+    const namaToko = new Map((rt.data.values || []).map(r => [String(r[0] || "").trim().toUpperCase(), r[1] || ""]));
+    const data = pencapaian.rekap(program, tab)
       .map(h => ({ ...h, namaToko: namaToko.get(h.kodeToko) || null }))
       .sort((a, b) => (b.persen ?? -1) - (a.persen ?? -1));
-    res.json({ kode: key, judul: program.judul, satuan: pencapaian.SATUAN, targetProgram: program.target, standar, belumAdaTab, data });
+    res.json({ judul: program.judul, tab: t[0], gid: t[1], ...pencapaian.untukForm(tab), data });
   } catch (e) { kirimError(res, e); }
 });
 
