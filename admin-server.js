@@ -22,6 +22,7 @@ const crypto = require("crypto");
 const store = require("./lib/store");
 const pencapaian = require("./lib/pencapaian");
 const dataToko = require("./lib/dataToko");
+const poinProgram = require("./lib/poinProgram");
 const XLSX = require("xlsx");
 
 const cfg = () => store.getConfig();
@@ -136,7 +137,7 @@ function serviceAccountEmail() {
 
 // Struktur sheet yang dipakai bot
 const SHEET_STRUKTUR = {
-  "Data Toko":    ["ID", "DISTRICT_CODE", "TERRITORY_CODE", "KODE_TOKO", "NAMA_TOKO", "PIC_TOKO", "WA", "POIN", "KONTRIBUTOR"],
+  "Data Toko":    ["ID", "DISTRICT_CODE", "TERRITORY_CODE", "KODE_TOKO", "NAMA_TOKO", "PIC_TOKO", "WA", "POIN", "KONTRIBUTOR", poinProgram.KOLOM_TERCATAT],
   "List_Hadiah":  ["ID", "NAMA", "POIN", "GAMBAR", "STOK", "TIPE"],
   "LOG_KLAIM":    ["TANGGAL", "NAMA_TOKO", "PIC_TOKO", "KODE_TOKO", "AKSI", "KETERANGAN", "POIN_DIUBAH", "SISA_POIN"],
   "Info_Program": ["JUDUL", "DESKRIPSI", "GAMBAR", "MEKANISME", "PERIODE", "KODE_PROGRAM", "TARGET", "SATUAN"],
@@ -808,6 +809,84 @@ app.post("/api/poin", requireAuth, async (req, res) => {
   } catch (e) { kirimError(res, e); }
 });
 
+// ---------- Poin otomatis dari transaksi program (1 pack = 1 poin) ----------
+
+async function dataSinkronPoin() {
+  const pp = cfg().poinProgram || {};
+  if (!pp.judul) throw Object.assign(new Error("Program sumber poin belum dipilih"), { status: 400 });
+  const t = cariTab(await daftarTab(), pencapaian.namaTab(pp.judul));
+  if (!t) throw Object.assign(new Error(`Tab program "${pp.judul}" tidak ada di spreadsheet`), { status: 400 });
+  const [rt, rp] = await Promise.all([
+    sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Data Toko!A2:J" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: `${kutipTab(t[0])}!A1:Z`, ...OPSI_ANGKA }),
+  ]);
+  const hasil = poinProgram.hitungSinkron(rt.data.values || [], pencapaian.parseTab(rp.data.values));
+  hasil.ringkasan.program = pp.judul;
+  return hasil;
+}
+
+let kirimPoinJalan = Promise.resolve();
+/** Hitung (dan kalau simpan=true tulis) poin dari program sumber. */
+async function sinkronPoin(simpan, notif) {
+  const hasil = await dataSinkronPoin();
+  if (!simpan || !hasil.ubah.length) return hasil;
+  const judul = hasil.ringkasan.program;
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: SID(),
+    requestBody: { valueInputOption: "RAW", data: [
+      { range: "Data Toko!J1", values: [[poinProgram.KOLOM_TERCATAT]] },
+      ...hasil.ubah.flatMap(u => [
+        { range: `Data Toko!H${u.baris}`, values: [[u.poinBaru]] },
+        { range: `Data Toko!J${u.baris}`, values: [[u.pack]] },
+      ]),
+    ] },
+  });
+  const tgl = now();
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SID(), range: "LOG_KLAIM!A:H", valueInputOption: "RAW", insertDataOption: "INSERT_ROWS",
+    requestBody: { values: hasil.ubah.map(u => [tgl, u.nama, u.pic, u.kode, u.delta > 0 ? "POIN PROGRAM" : "KOREKSI POIN PROGRAM",
+      `${judul}: ${u.tercatat} → ${u.pack} pack`, u.delta, u.poinBaru]) },
+  });
+  segarkanBot();
+  // Notif ke toko yang poinnya bertambah — dikirim pelan-pelan di belakang supaya WA tidak dianggap spam
+  if (notif) {
+    const target = hasil.ubah.filter(u => u.delta > 0 && /^\d{10,15}$/.test(normWa(u.wa)));
+    hasil.ringkasan.notif = target.length;
+    kirimPoinJalan = kirimPoinJalan.then(async () => {
+      for (const u of target) {
+        await botApi("POST", "/send", { to: normWa(u.wa), pesan: poinProgram.pesanPoinMasuk(u, judul) }, 20000)
+          .catch(e => console.error("Notif poin gagal", u.kode, e.message));
+        await new Promise(r => setTimeout(r, 4000));
+      }
+    });
+  }
+  return hasil;
+}
+
+app.get("/api/poin/program", requireAuth, async (req, res) => {
+  try {
+    const r = await sheets.spreadsheets.values.get({ spreadsheetId: SID(), range: "Info_Program!A2:A" });
+    res.json({ ...(cfg().poinProgram || {}), pilihan: (r.data.values || []).map(x => x[0]).filter(Boolean) });
+  } catch (e) { kirimError(res, e); }
+});
+
+app.put("/api/poin/program", requireAuth, (req, res) => {
+  const b = req.body || {};
+  store.updateConfig(c => {
+    c.poinProgram = { judul: String(b.judul || "").trim(), notif: b.notif !== false };
+  });
+  res.json(cfg().poinProgram);
+});
+
+/** Tanpa ?simpan=1 → pratinjau. Body { notif } */
+app.post("/api/poin/sinkron", requireAuth, async (req, res) => {
+  try {
+    const simpan = req.query.simpan === "1";
+    const h = await sinkronPoin(simpan, simpan && (req.body || {}).notif !== false);
+    res.json({ simpan, ringkasan: h.ringkasan });
+  } catch (e) { kirimError(res, e); }
+});
+
 // ============================================================
 // HADIAH  (index = nomor baris data, 1 = baris ke-2 di sheet)
 // ============================================================
@@ -1183,6 +1262,12 @@ app.post("/api/info/:index/upload", requireAuth, async (req, res) => {
     });
     await catatLog(now(), "-", "", "-", "UPLOAD PROGRAM",
       `${d.program.judul}: ${r.diperbarui} toko diperbarui, ${r.ditambah} ditambah — file ${String(nama || "-").slice(0, 80)} — Via Admin Web`, 0, 0);
+    // Program sumber poin → poin toko langsung ikut diperbarui
+    const pp = cfg().poinProgram || {};
+    if (pp.judul && pencapaian.namaTab(pp.judul).toUpperCase() === d.namaTab.trim().toUpperCase()) {
+      try { ringkasan.poin = (await sinkronPoin(true, pp.notif !== false)).ringkasan; }
+      catch (e) { ringkasan.poinError = e.message; }
+    }
     segarkanBot();
     res.json({ simpan: true, ringkasan });
   } catch (e) { kirimError(res, e); }
